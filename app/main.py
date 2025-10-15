@@ -2,16 +2,41 @@ from fastapi import FastAPI, Depends, Response, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from contextlib import asynccontextmanager
 
 from .config import API_NAME, CORS_ORIGINS
-from .db import get_session
+from .db import get_session, engine
 from .auth import verify_password, create_jwt, set_cookie, clear_cookie
 from .routers import me as me_router
 from .routers import stats as stats_router
 from .routers import runs as runs_router
 from .routers import admin as admin_router
 
-app = FastAPI(title=API_NAME)
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info(f"🚀 Starting {API_NAME}")
+    logger.info(f"🌐 CORS Origins configured: {CORS_ORIGINS}")
+    try:
+        # Test database connection
+        async with engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+        logger.info("✅ Database connection successful")
+    except Exception as e:
+        logger.error(f"❌ Database connection failed: {e}")
+        # Don't crash - let the app start anyway
+    
+    yield
+    
+    # Shutdown
+    logger.info("🛑 Shutting down application")
+    await engine.dispose()
+
+app = FastAPI(title=API_NAME, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,13 +45,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Log CORS configuration at startup
-import logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-logger.info(f"🚀 Starting {API_NAME}")
-logger.info(f"🌐 CORS Origins configured: {CORS_ORIGINS}")
 
 @app.get("/health")
 async def health():
