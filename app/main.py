@@ -21,9 +21,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Log CORS configuration at startup
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.info(f"🚀 Starting {API_NAME}")
+logger.info(f"🌐 CORS Origins configured: {CORS_ORIGINS}")
+
 @app.get("/health")
 async def health():
     return {"ok": True}
+
+@app.get("/debug/cors")
+async def debug_cors():
+    """Debug endpoint to check CORS configuration"""
+    import os
+    return {
+        "CORS_ORIGIN_env": os.getenv("CORS_ORIGIN", "NOT SET"),
+        "CORS_ORIGINS_config": CORS_ORIGINS,
+        "all_env_vars": {k: v for k, v in os.environ.items() if "CORS" in k or "DATABASE" in k or "JWT" in k}
+    }
 
 # --- Auth endpoints ---
 
