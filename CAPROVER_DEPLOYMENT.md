@@ -38,6 +38,7 @@ db-api/
 **Important Files:**
 
 1. **`captain-definition`** (already created):
+
 ```json
 {
   "schemaVersion": 2,
@@ -46,6 +47,7 @@ db-api/
 ```
 
 2. **`Dockerfile`** (already created):
+
 ```dockerfile
 FROM python:3.12-slim
 
@@ -92,6 +94,7 @@ git push -u origin main
 ### Step 3: Create App in CapRover
 
 1. **Log into CapRover Dashboard**
+
    - Navigate to your CapRover URL (e.g., `https://captain.yourdomain.com`)
 
 2. **Create New App**
@@ -104,11 +107,12 @@ git push -u origin main
 ### Step 4: Configure Environment Variables
 
 1. **Navigate to App Settings**
+
    - Click on your newly created app (`dashboard-api`)
    - Go to "App Configs" tab
 
 2. **Add Environment Variables**
-   
+
    Click "Bulk Edit" and add:
 
    ```
@@ -119,6 +123,7 @@ git push -u origin main
    ```
 
    **Important Notes:**
+
    - **DATABASE_URL**: Use your actual PostgreSQL connection string
    - **CORS_ORIGIN**: Set to your frontend domain (or multiple domains separated by comma)
    - **JWT_SECRET**: Generate with `openssl rand -hex 32` - NEVER use a simple password
@@ -130,6 +135,7 @@ git push -u origin main
 ### Step 5: Enable HTTPS (Recommended)
 
 1. **Enable HTTPS**
+
    - Still in App Configs
    - Scroll to "HTTP Settings"
    - Check "Enable HTTPS"
@@ -149,17 +155,21 @@ CapRover supports two methods for GitHub deployment:
 #### Method A: Using CapRover CLI (Recommended)
 
 1. **Install CapRover CLI** (if not installed):
+
    ```bash
    npm install -g caprover
    ```
 
 2. **Login to CapRover**:
+
    ```bash
    caprover login
    ```
+
    - Follow prompts to enter your CapRover URL and password
 
 3. **Deploy from GitHub**:
+
    ```bash
    # Navigate to your dashboard-api folder
    cd c:\Users\User\Documents\Waai\dashboard-api
@@ -167,6 +177,7 @@ CapRover supports two methods for GitHub deployment:
    # Deploy to CapRover
    caprover deploy
    ```
+
    - Select your CapRover server
    - Select your app name (`dashboard-api`)
    - Confirm deployment
@@ -174,12 +185,14 @@ CapRover supports two methods for GitHub deployment:
 #### Method B: Using GitHub Webhooks (Continuous Deployment)
 
 1. **Generate Deploy Token in CapRover**
+
    - In CapRover Dashboard, go to "Apps" → Your App
    - Click "Deployment" tab
    - Scroll to "Method 3: Deploy from Github/Bitbucket/Gitlab"
    - Copy the webhook URL (looks like: `https://captain.yourdomain.com/api/v2/user/apps/webhooks/triggerbuild?namespace=captain&token=YOUR_TOKEN`)
 
 2. **Add Webhook to GitHub**
+
    - Go to your GitHub repository: https://github.com/casperpijl/db-api
    - Click "Settings" → "Webhooks" → "Add webhook"
    - Paste the CapRover webhook URL
@@ -188,6 +201,7 @@ CapRover supports two methods for GitHub deployment:
    - Click "Add webhook"
 
 3. **Configure Branch (Optional)**
+
    - In CapRover app settings, under "Deployment" tab
    - Set "Branch Name" to `main` (or your preferred branch)
 
@@ -201,6 +215,7 @@ CapRover supports two methods for GitHub deployment:
 If you prefer not to use GitHub directly:
 
 1. **Create Tarball**:
+
    ```bash
    cd c:\Users\User\Documents\Waai\dashboard-api
    tar -czf dashboard-api.tar.gz .
@@ -216,12 +231,14 @@ If you prefer not to use GitHub directly:
 ### Step 7: Monitor Deployment
 
 1. **Check Build Logs**
+
    - In CapRover Dashboard → Your App
    - Click "Deployment" tab
    - Watch the build logs in real-time
    - Look for successful build messages
 
 2. **Check App Logs**
+
    - Click "App Logs" tab
    - Monitor for any startup errors
    - You should see: `Uvicorn running on http://0.0.0.0:8000`
@@ -253,10 +270,10 @@ Update your frontend to use the new API URL:
 
 ```typescript
 // Before
-const API_BASE_URL = "http://localhost:8000"
+const API_BASE_URL = "http://localhost:8000";
 
 // After
-const API_BASE_URL = "https://dashboard-api.yourdomain.com"
+const API_BASE_URL = "https://dashboard-api.yourdomain.com";
 ```
 
 ---
@@ -264,7 +281,9 @@ const API_BASE_URL = "https://dashboard-api.yourdomain.com"
 ## Common Issues & Solutions
 
 ### Issue 1: Build Fails - "No such file or directory"
+
 **Solution**: Ensure all files are committed and pushed to GitHub
+
 ```bash
 git add .
 git commit -m "Add missing files"
@@ -272,26 +291,34 @@ git push
 ```
 
 ### Issue 2: Database Connection Error
-**Solution**: 
+
+**Solution**:
+
 - Verify `DATABASE_URL` is correct in CapRover environment variables
 - Ensure database is accessible from CapRover server
 - Check firewall rules allow connections
 
 ### Issue 3: CORS Errors in Browser
+
 **Solution**:
+
 - Update `CORS_ORIGIN` in CapRover to match your frontend URL exactly
 - Include protocol: `https://yourdomain.com` not `yourdomain.com`
 - For multiple domains: `https://app1.com,https://app2.com`
 
 ### Issue 4: 502 Bad Gateway
+
 **Solution**:
+
 - Check app logs in CapRover
 - Verify app is running (should see Uvicorn logs)
 - Ensure port 8000 is exposed in Dockerfile
 - Restart the app
 
 ### Issue 5: JWT Errors / Login Fails
+
 **Solution**:
+
 - Verify `JWT_SECRET` is set in environment variables
 - Check database has users table with correct credentials
 - Verify password hashes are correct in database
@@ -301,15 +328,19 @@ git push
 ## Updating Your Deployment
 
 ### Automatic Updates (if using GitHub webhook):
+
 Simply push to GitHub:
+
 ```bash
 git add .
 git commit -m "Update API"
 git push
 ```
+
 CapRover will automatically rebuild and redeploy.
 
 ### Manual Updates via CLI:
+
 ```bash
 cd c:\Users\User\Documents\Waai\dashboard-api
 caprover deploy
@@ -322,10 +353,12 @@ caprover deploy
 If deployment fails:
 
 1. **Revert to Previous Version**
+
    - CapRover keeps previous Docker images
    - In App settings, you can manually select previous image
 
 2. **Check Logs**
+
    - Review build logs and app logs
    - Identify the error
 
@@ -337,12 +370,12 @@ If deployment fails:
 
 ## Environment Variables Reference
 
-| Variable | Required | Example | Description |
-|----------|----------|---------|-------------|
-| `DATABASE_URL` | ✅ Yes | `postgresql+asyncpg://user:pass@host:5432/db` | PostgreSQL connection string |
-| `CORS_ORIGIN` | ✅ Yes | `https://dashboard.yourdomain.com` | Allowed frontend URL(s) |
-| `JWT_SECRET` | ✅ Yes | `a1b2c3d4e5f6...` (32+ chars) | Secret key for JWT signing |
-| `JWT_EXPIRE_MIN` | ❌ No | `43200` | JWT expiration in minutes (default: 30 days) |
+| Variable         | Required | Example                                       | Description                                  |
+| ---------------- | -------- | --------------------------------------------- | -------------------------------------------- |
+| `DATABASE_URL`   | ✅ Yes   | `postgresql+asyncpg://user:pass@host:5432/db` | PostgreSQL connection string                 |
+| `CORS_ORIGIN`    | ✅ Yes   | `https://dashboard.yourdomain.com`            | Allowed frontend URL(s)                      |
+| `JWT_SECRET`     | ✅ Yes   | `a1b2c3d4e5f6...` (32+ chars)                 | Secret key for JWT signing                   |
+| `JWT_EXPIRE_MIN` | ❌ No    | `43200`                                       | JWT expiration in minutes (default: 30 days) |
 
 ---
 
@@ -392,6 +425,7 @@ curl https://dashboard-api.yourdomain.com/health
 **Congratulations! Your Dashboard API should now be deployed on CapRover! 🚀**
 
 For issues, check:
+
 1. CapRover app logs
 2. Build logs
 3. Database connectivity

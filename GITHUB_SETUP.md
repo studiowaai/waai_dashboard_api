@@ -81,6 +81,7 @@ Verify these files are present:
 ```
 
 **Do NOT commit:**
+
 - ❌ `.env` (contains secrets)
 - ❌ `__pycache__/` (Python cache)
 - ❌ `*.pyc` (Python compiled files)
@@ -159,6 +160,7 @@ git push
 Visit: https://github.com/casperpijl/db-api
 
 You should see:
+
 - All the files listed above
 - README.md displayed on the main page
 - captain-definition in the root

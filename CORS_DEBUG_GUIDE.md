@@ -23,6 +23,7 @@ The CORS preflight request (OPTIONS) is being rejected **before** it reaches you
 I've added debug logging to your `dashboard-api/app/main.py`. You need to:
 
 1. **Commit and push the changes:**
+
    ```bash
    cd c:\Users\User\Documents\Waai\dashboard-api
    git add .
@@ -40,6 +41,7 @@ After redeployment:
 
 1. Go to CapRover → Apps → **db-api** → **App Logs**
 2. Look for these lines at startup:
+
    ```
    🚀 Starting n8n Dashboard API
    🌐 CORS Origins configured: ['https://dashboard.apps.studiowaai.nl']
@@ -53,15 +55,18 @@ After redeployment:
 ### Step 3: Test the Debug Endpoint
 
 Visit this URL in your browser:
+
 ```
 https://db-api.apps.studiowaai.nl/debug/cors
 ```
 
 This will show you:
+
 - What environment variables the app can see
 - What CORS configuration is actually being used
 
 **Expected output:**
+
 ```json
 {
   "CORS_ORIGIN_env": "https://dashboard.apps.studiowaai.nl",
@@ -84,10 +89,12 @@ This will show you:
 ### Issue 1: Environment Variable Not Loading
 
 **Symptoms:**
+
 - Debug endpoint shows `CORS_ORIGIN_env: "NOT SET"`
 - Or shows `http://localhost:3000`
 
 **Solution:**
+
 1. Double-check in CapRover → db-api → App Configs
 2. Make sure `CORS_ORIGIN` (singular, not plural) is set
 3. Click "Save & Update" again
@@ -96,10 +103,12 @@ This will show you:
 ### Issue 2: Old Code Still Running
 
 **Symptoms:**
+
 - Logs don't show the 🚀 and 🌐 emojis
 - Debug endpoint returns 404
 
 **Solution:**
+
 1. Make sure you pushed the updated code to GitHub
 2. Force rebuild in CapRover:
    - Go to Deployment tab
@@ -109,11 +118,13 @@ This will show you:
 ### Issue 3: CapRover Reverse Proxy Issue
 
 **Symptoms:**
+
 - Everything looks correct but CORS still fails
 - OPTIONS requests never reach the app
 
 **Solution:**
 Try accessing the API directly without HTTPS:
+
 ```bash
 curl -I http://srv-captain--db-api/health
 ```
@@ -134,6 +145,7 @@ curl -X OPTIONS https://db-api.apps.studiowaai.nl/auth/login \
 ```
 
 **Expected response headers:**
+
 ```
 < HTTP/2 200
 < access-control-allow-origin: https://dashboard.apps.studiowaai.nl
@@ -143,6 +155,7 @@ curl -X OPTIONS https://db-api.apps.studiowaai.nl/auth/login \
 ```
 
 **If you get:**
+
 - `access-control-allow-origin: *` → Still using wildcard
 - No CORS headers → CORS middleware not working
 - 404 → CapRover routing issue

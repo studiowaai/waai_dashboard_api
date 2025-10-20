@@ -80,18 +80,22 @@ curl https://dashboard-api.yourdomain.com/health
 ## Troubleshooting 🔍
 
 **Build failed?**
+
 - Check CapRover build logs
 - Ensure all files are pushed to GitHub
 
 **Database error?**
+
 - Verify DATABASE_URL is correct
 - Check database is accessible from CapRover
 
 **CORS error?**
+
 - Update CORS_ORIGIN to match frontend URL exactly
 - Include `https://` protocol
 
 **502 Bad Gateway?**
+
 - Check app logs in CapRover
 - Verify app is running
 - Restart app if needed
