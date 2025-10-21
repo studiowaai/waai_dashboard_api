@@ -4,6 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
 import bcrypt
+import secrets
 
 from ..deps import authed, Authed
 from ..db import get_session
@@ -56,6 +57,29 @@ class UserResponse(BaseModel):
     created_at: str
 
 
+class IngestTokenResponse(BaseModel):
+    """Ingest token response"""
+    id: str
+    org_id: str
+    org_name: str
+    token: str
+    name: str
+    is_active: bool
+    created_at: str
+
+
+class IngestTokenCreate(BaseModel):
+    """Create a new ingest token"""
+    org_id: str = Field(..., description="Organization UUID")
+    name: str = Field(..., description="Token name/description")
+
+
+class IngestTokenUpdate(BaseModel):
+    """Update an ingest token"""
+    name: Optional[str] = Field(None, description="New token name/description")
+    is_active: Optional[bool] = Field(None, description="Active status")
+
+
 # ============================================================================
 # HELPER FUNCTIONS
 # ============================================================================
@@ -72,6 +96,13 @@ def require_admin(user: Authed):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
         )
+
+
+def generate_ingest_token() -> str:
+    """Generate a secure ingest token with sk_live_ prefix"""
+    # Generate 32 bytes (256 bits) of random data and encode as hex
+    random_part = secrets.token_hex(32)
+    return f"sk_live_{random_part}"
 
 
 # ============================================================================
@@ -105,9 +136,11 @@ async def create_organization(
 ):
     """
     Create a new organization (admin only).
+    Also automatically creates a default ingest token for the organization.
     """
     require_admin(user)
     
+    # Create organization
     query = text("""
         INSERT INTO organizations (name)
         VALUES (:name)
@@ -116,9 +149,25 @@ async def create_organization(
     
     result = await db.execute(query, {"name": org.name})
     row = result.first()
+    org_id = row[0]
+    org_name = row[1]
+    
+    # Automatically create an ingest token for this organization
+    token = generate_ingest_token()
+    token_query = text("""
+        INSERT INTO ingest_tokens (org_id, token, name, is_active)
+        VALUES (:org_id, :token, :name, TRUE)
+    """)
+    
+    await db.execute(token_query, {
+        "org_id": org_id,
+        "token": token,
+        "name": f"Default token for {org_name}"
+    })
+    
     await db.commit()
     
-    return OrganizationResponse(id=str(row[0]), name=row[1])
+    return OrganizationResponse(id=str(org_id), name=org_name)
 
 
 @router.put("/organizations/{org_id}", response_model=OrganizationResponse)
@@ -485,3 +534,202 @@ async def get_admin_runs(
         })
     
     return runs
+
+
+# ============================================================================
+# INGEST TOKEN ENDPOINTS
+# ============================================================================
+
+@router.get("/tokens", response_model=List[IngestTokenResponse])
+async def list_ingest_tokens(
+    org_id: Optional[str] = Query(None, description="Filter by organization ID"),
+    user: Authed = Depends(authed),
+    db: AsyncSession = Depends(get_session)
+):
+    """
+    List all ingest tokens (admin only).
+    Optionally filter by organization.
+    """
+    require_admin(user)
+    
+    if org_id:
+        query = text("""
+            SELECT t.id, t.org_id, t.token, t.name, t.is_active, t.created_at, o.name as org_name
+            FROM ingest_tokens t
+            JOIN organizations o ON o.id = t.org_id
+            WHERE t.org_id = :org_id
+            ORDER BY t.created_at DESC
+        """)
+        rows = (await db.execute(query, {"org_id": org_id})).mappings().all()
+    else:
+        query = text("""
+            SELECT t.id, t.org_id, t.token, t.name, t.is_active, t.created_at, o.name as org_name
+            FROM ingest_tokens t
+            JOIN organizations o ON o.id = t.org_id
+            ORDER BY o.name, t.created_at DESC
+        """)
+        rows = (await db.execute(query)).mappings().all()
+    
+    return [
+        IngestTokenResponse(
+            id=str(row["id"]),
+            org_id=str(row["org_id"]),
+            org_name=row["org_name"],
+            token=row["token"],
+            name=row["name"],
+            is_active=row["is_active"],
+            created_at=row["created_at"].isoformat()
+        )
+        for row in rows
+    ]
+
+
+@router.post("/tokens", response_model=IngestTokenResponse)
+async def create_ingest_token(
+    new_token: IngestTokenCreate,
+    user: Authed = Depends(authed),
+    db: AsyncSession = Depends(get_session)
+):
+    """
+    Create a new ingest token (admin only).
+    """
+    require_admin(user)
+    
+    # Check if org exists
+    org_check = text("SELECT id, name FROM organizations WHERE id = :org_id")
+    org_row = (await db.execute(org_check, {"org_id": new_token.org_id})).first()
+    
+    if not org_row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found"
+        )
+    
+    org_name = org_row[1]
+    
+    # Generate secure token
+    token = generate_ingest_token()
+    
+    # Create token
+    query = text("""
+        INSERT INTO ingest_tokens (org_id, token, name, is_active)
+        VALUES (:org_id, :token, :name, TRUE)
+        RETURNING id, org_id, token, name, is_active, created_at
+    """)
+    
+    result = await db.execute(query, {
+        "org_id": new_token.org_id,
+        "token": token,
+        "name": new_token.name
+    })
+    row = result.mappings().first()
+    await db.commit()
+    
+    return IngestTokenResponse(
+        id=str(row["id"]),
+        org_id=str(row["org_id"]),
+        org_name=org_name,
+        token=row["token"],
+        name=row["name"],
+        is_active=row["is_active"],
+        created_at=row["created_at"].isoformat()
+    )
+
+
+@router.put("/tokens/{token_id}", response_model=IngestTokenResponse)
+async def update_ingest_token(
+    token_id: str,
+    updated_token: IngestTokenUpdate,
+    user: Authed = Depends(authed),
+    db: AsyncSession = Depends(get_session)
+):
+    """
+    Update an ingest token (admin only).
+    Can update the name and active status.
+    """
+    require_admin(user)
+    
+    # Check if token exists
+    check_query = text("SELECT id, org_id FROM ingest_tokens WHERE id = :token_id")
+    existing = (await db.execute(check_query, {"token_id": token_id})).first()
+    
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Token not found"
+        )
+    
+    org_id = existing[1]
+    
+    # Build update query dynamically
+    updates = []
+    params = {"token_id": token_id}
+    
+    if updated_token.name is not None:
+        updates.append("name = :name")
+        params["name"] = updated_token.name
+    
+    if updated_token.is_active is not None:
+        updates.append("is_active = :is_active")
+        params["is_active"] = updated_token.is_active
+    
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields to update"
+        )
+    
+    # Execute update
+    query = text(f"""
+        UPDATE ingest_tokens
+        SET {', '.join(updates)}
+        WHERE id = :token_id
+        RETURNING id, org_id, token, name, is_active, created_at
+    """)
+    
+    result = await db.execute(query, params)
+    row = result.mappings().first()
+    await db.commit()
+    
+    # Get org name
+    org_name_query = text("SELECT name FROM organizations WHERE id = :org_id")
+    org_name = (await db.execute(org_name_query, {"org_id": org_id})).scalar()
+    
+    return IngestTokenResponse(
+        id=str(row["id"]),
+        org_id=str(row["org_id"]),
+        org_name=org_name,
+        token=row["token"],
+        name=row["name"],
+        is_active=row["is_active"],
+        created_at=row["created_at"].isoformat()
+    )
+
+
+@router.delete("/tokens/{token_id}")
+async def delete_ingest_token(
+    token_id: str,
+    user: Authed = Depends(authed),
+    db: AsyncSession = Depends(get_session)
+):
+    """
+    Delete an ingest token (admin only).
+    """
+    require_admin(user)
+    
+    # Check if token exists
+    check_query = text("SELECT id FROM ingest_tokens WHERE id = :token_id")
+    row = (await db.execute(check_query, {"token_id": token_id})).first()
+    
+    if not row:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Token not found"
+        )
+    
+    # Delete token
+    delete_query = text("DELETE FROM ingest_tokens WHERE id = :token_id")
+    await db.execute(delete_query, {"token_id": token_id})
+    await db.commit()
+    
+    return {"ok": True, "message": "Token deleted successfully"}
