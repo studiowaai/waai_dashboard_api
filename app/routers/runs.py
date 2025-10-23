@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..deps import authed, Authed
@@ -30,3 +30,47 @@ async def recent(limit: int = Query(10, ge=1, le=100),
             "status": r["status"],
         })
     return out
+
+
+@router.get("/{run_id}")
+async def get_run_details(
+    run_id: int,
+    user: Authed = Depends(authed),
+    db: AsyncSession = Depends(get_session)
+):
+    """Get detailed information about a specific workflow run"""
+    q = text("""
+        SELECT 
+            wr.id,
+            wr.workflow_id,
+            w.name as workflow_name,
+            wr.started_at,
+            wr.ended_at,
+            wr.status,
+            wr.duration_ms,
+            wr.error_message,
+            wr.external_run_id,
+            wr.payload
+        FROM workflow_runs wr
+        JOIN workflows w ON w.id = wr.workflow_id
+        WHERE wr.id = :run_id AND wr.org_id = :org_id
+        LIMIT 1
+    """)
+    
+    row = (await db.execute(q, {"run_id": run_id, "org_id": user.org_id})).mappings().first()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Workflow run not found")
+    
+    return {
+        "id": row["id"],
+        "workflowId": row["workflow_id"],
+        "workflowName": row["workflow_name"],
+        "startedAt": row["started_at"].isoformat(),
+        "endedAt": row["ended_at"].isoformat() if row["ended_at"] else None,
+        "status": row["status"],
+        "durationMs": row["duration_ms"],
+        "errorMessage": row["error_message"],
+        "externalRunId": row["external_run_id"],
+        "metadata": row["payload"] or {}
+    }
