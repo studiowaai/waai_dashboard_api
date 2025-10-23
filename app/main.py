@@ -11,6 +11,7 @@ from .routers import me as me_router
 from .routers import stats as stats_router
 from .routers import runs as runs_router
 from .routers import admin as admin_router
+from .routers import approvals as approvals_router
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -96,3 +97,4 @@ app.include_router(me_router.router)
 app.include_router(stats_router.router)
 app.include_router(runs_router.router)
 app.include_router(admin_router.router)
+app.include_router(approvals_router.router)
