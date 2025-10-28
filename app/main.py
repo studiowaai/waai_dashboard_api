@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
 from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
-from .config import API_NAME, CORS_ORIGINS
+from .config import API_NAME, CORS_ORIGINS, CORS_ORIGIN_REGEX
 from .db import get_session, engine
 from .auth import verify_password, create_jwt, set_cookie, clear_cookie
 from .routers import me as me_router
@@ -46,6 +46,7 @@ app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
+    allow_origin_regex=CORS_ORIGIN_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -61,7 +62,9 @@ async def debug_cors():
     import os
     return {
         "CORS_ORIGIN_env": os.getenv("CORS_ORIGIN", "NOT SET"),
+        "CORS_ORIGIN_REGEX_env": os.getenv("CORS_ORIGIN_REGEX", "NOT SET"),
         "CORS_ORIGINS_config": CORS_ORIGINS,
+        "CORS_ORIGIN_REGEX_config": CORS_ORIGIN_REGEX,
         "all_env_vars": {k: v for k, v in os.environ.items() if "CORS" in k or "DATABASE" in k or "JWT" in k}
     }
 
