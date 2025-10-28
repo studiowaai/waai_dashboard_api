@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
@@ -140,6 +140,7 @@ async def list_approvals(
 @router.get("/{approval_id}", response_model=ApprovalDetail)
 async def get_approval_detail(
     approval_id: str,
+    request: Request,
     user: Authed = Depends(authed),
     db: AsyncSession = Depends(get_session)
 ):
@@ -189,17 +190,19 @@ async def get_approval_detail(
         {"approval_id": approval_id}
     )).mappings().all()
     
-    assets = [
-        ApprovalAsset(
-            id=str(row["id"]),
+    base_url = str(request.base_url).rstrip("/")
+    assets = []
+    for row in assets_rows:
+        asset_id = str(row["id"])
+        proxied_url = f"{base_url}/approvals/{approval_id}/assets/{asset_id}/view"
+        assets.append(ApprovalAsset(
+            id=asset_id,
             role=row["role"],
-            url=row["external_url"],
+            url=proxied_url,
             filename=row["filename"],
             mime_type=row["mime_type"],
             size_bytes=row["size_bytes"]
-        )
-        for row in assets_rows
-    ]
+        ))
     
     # Log 'viewed' event
     await log_approval_event(
@@ -400,7 +403,7 @@ async def reject_approval(
         FROM approvals
         WHERE id = :approval_id AND org_id = :org_id
         FOR UPDATE
-    """)
+""")
     
     approval_row = (await db.execute(
         lock_query,
@@ -449,3 +452,78 @@ async def reject_approval(
         approval_id=approval_id,
         status="rejected"
     )
+
+
+@router.get("/{approval_id}/assets/{asset_id}/view")
+async def view_approval_asset(
+    approval_id: str,
+    asset_id: str,
+    user: Authed = Depends(authed),
+    db: AsyncSession = Depends(get_session),
+):
+    """
+    Proxy an approval asset through the API so the browser can load it
+    from the public API domain even when the stored external_url points
+    to an internal host (e.g., srv-captain--minio).
+
+    Access control: ensures the asset belongs to the user's org via join.
+    """
+    # Fetch asset joined with approval to enforce org ownership
+    asset_query = text(
+        """
+        SELECT aa.id,
+               aa.approval_id,
+               aa.external_url,
+               aa.filename,
+               aa.mime_type
+        FROM approval_assets aa
+        JOIN approvals a ON a.id = aa.approval_id
+        WHERE aa.id = :asset_id
+          AND aa.approval_id = :approval_id
+          AND a.org_id = :org_id
+        LIMIT 1
+        """
+    )
+
+    asset_row = (
+        await db.execute(
+            asset_query,
+            {"asset_id": asset_id, "approval_id": approval_id, "org_id": user.org_id},
+        )
+    ).mappings().first()
+
+    if not asset_row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    external_url = asset_row["external_url"]
+    if not external_url:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset URL missing")
+
+    # Fetch the asset content from the external URL
+    try:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            upstream = await client.get(external_url)
+    except Exception as e:
+        logger.error(f"Asset fetch failed for {asset_id}: {e}")
+        raise HTTPException(status_code=502, detail="Failed to fetch asset")
+
+    if upstream.status_code != 200:
+        logger.warning(
+            f"Asset upstream returned {upstream.status_code} for {asset_id}"
+        )
+        raise HTTPException(status_code=upstream.status_code, detail="Upstream error")
+
+    # Determine content type and filename
+    content_type = (
+        asset_row["mime_type"]
+        or upstream.headers.get("content-type")
+        or "application/octet-stream"
+    )
+    filename = asset_row["filename"] or "asset"
+
+    headers = {
+        "Content-Disposition": f"inline; filename=\"{filename}\"",
+        "Cache-Control": "private, max-age=300",
+    }
+
+    return Response(content=upstream.content, media_type=content_type, headers=headers)
