@@ -190,11 +190,10 @@ async def get_approval_detail(
         {"approval_id": approval_id}
     )).mappings().all()
     
-    base_url = str(request.base_url).rstrip("/")
     assets = []
     for row in assets_rows:
         asset_id = str(row["id"])
-        proxied_url = f"{base_url}/approvals/{approval_id}/assets/{asset_id}/view"
+        proxied_url = request.url_for("view_approval_asset", approval_id=approval_id, asset_id=asset_id)
         assets.append(ApprovalAsset(
             id=asset_id,
             role=row["role"],
