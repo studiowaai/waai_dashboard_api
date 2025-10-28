@@ -81,7 +81,9 @@ async def log_approval_event(
 # ENDPOINTS
 # ============================================================================
 
-@router.get("/", response_model=List[ApprovalListItem])
+# Accept non-trailing-slash path to avoid 307 redirect on 
+# GET /approvals (Starlette otherwise redirects to /approvals/)
+@router.get("", response_model=List[ApprovalListItem])
 async def list_approvals(
     status: Optional[str] = Query(None, description="Filter by status: pending, approved, rejected, sent, failed"),
     type: Optional[str] = Query(None, description="Filter by type: order, linkedin_post, gmail_reply"),
@@ -108,7 +110,12 @@ async def list_approvals(
     where_sql = " AND ".join(where_clauses)
     
     query = text(f"""
-        SELECT id, type, status, title, preview, created_at
+        SELECT id,
+               type,
+               status,
+               title,
+               (data->'preview') AS preview,
+               created_at
         FROM approvals
         WHERE {where_sql}
         ORDER BY created_at DESC
@@ -142,9 +149,18 @@ async def get_approval_detail(
     """
     # Fetch approval
     approval_query = text("""
-        SELECT id, org_id, type, status, title, preview, data,
-               n8n_execute_webhook_url, created_at, updated_at,
-               approved_at, approved_by_user_id
+        SELECT id,
+               org_id,
+               type,
+               status,
+               title,
+               (data->'preview') AS preview,
+               data,
+               n8n_execute_webhook_url,
+               created_at,
+               updated_at,
+               approved_at,
+               approved_by_user_id
         FROM approvals
         WHERE id = :approval_id AND org_id = :org_id
     """)
