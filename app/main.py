@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
-from starlette.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from .config import API_NAME, CORS_ORIGINS, CORS_ORIGIN_REGEX
 from .db import get_session, engine
@@ -39,9 +38,6 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 app = FastAPI(title=API_NAME, lifespan=lifespan)
-
-# Ensure correct scheme/host behind reverse proxy (CapRover)
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts="*")
 
 app.add_middleware(
     CORSMiddleware,

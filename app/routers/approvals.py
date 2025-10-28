@@ -6,6 +6,7 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import httpx
 import logging
+from urllib.parse import urlparse, urlunparse
 
 from ..deps import authed, Authed
 from ..db import get_session
@@ -76,6 +77,20 @@ async def log_approval_event(
         "user_id": user_id,
         "metadata": json.dumps(metadata or {})
     })
+
+def _adjust_url_for_proxy(request: Request, absolute_url: str) -> str:
+    """Ensure generated absolute URLs use the external scheme/host from proxy headers.
+
+    Fall back to the original absolute_url if headers are missing.
+    """
+    xf_proto = request.headers.get("x-forwarded-proto")
+    xf_host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if not xf_proto and not xf_host:
+        return absolute_url
+    p = urlparse(absolute_url)
+    scheme = xf_proto or p.scheme or "https"
+    netloc = xf_host or p.netloc
+    return urlunparse((scheme, netloc, p.path, "", p.query, ""))
 
 # ============================================================================
 # ENDPOINTS
@@ -193,7 +208,8 @@ async def get_approval_detail(
     assets = []
     for row in assets_rows:
         asset_id = str(row["id"])
-        proxied_url = request.url_for("view_approval_asset", approval_id=approval_id, asset_id=asset_id)
+        raw_url = str(request.url_for("view_approval_asset", approval_id=approval_id, asset_id=asset_id))
+        proxied_url = _adjust_url_for_proxy(request, raw_url)
         assets.append(ApprovalAsset(
             id=asset_id,
             role=row["role"],
