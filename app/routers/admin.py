@@ -55,6 +55,7 @@ class UserResponse(BaseModel):
     org_id: str
     org_name: str
     created_at: str
+    page_permissions: Optional[List[str]] = None
 
 
 class IngestTokenResponse(BaseModel):
@@ -78,6 +79,16 @@ class IngestTokenUpdate(BaseModel):
     """Update an ingest token"""
     name: Optional[str] = Field(None, description="New token name/description")
     is_active: Optional[bool] = Field(None, description="Active status")
+
+
+class UserPermissionsUpdate(BaseModel):
+    """Update a user's explicit page permissions.
+    Pass null to revert to role defaults.
+    """
+    page_permissions: Optional[List[str]] = Field(
+        default=None,
+        description="List of page keys like ['dashboard','executions'], or null to reset"
+    )
 
 
 # ============================================================================
@@ -250,7 +261,7 @@ async def list_users(
     
     if org_id:
         query = text("""
-            SELECT u.id, u.email, u.role, u.org_id, u.created_at, o.name as org_name
+            SELECT u.id, u.email, u.role, u.org_id, u.created_at, u.page_permissions, o.name as org_name
             FROM users u
             JOIN organizations o ON o.id = u.org_id
             WHERE u.org_id = :org_id
@@ -259,7 +270,7 @@ async def list_users(
         rows = (await db.execute(query, {"org_id": org_id})).mappings().all()
     else:
         query = text("""
-            SELECT u.id, u.email, u.role, u.org_id, u.created_at, o.name as org_name
+            SELECT u.id, u.email, u.role, u.org_id, u.created_at, u.page_permissions, o.name as org_name
             FROM users u
             JOIN organizations o ON o.id = u.org_id
             ORDER BY o.name, u.email
@@ -273,7 +284,8 @@ async def list_users(
             role=row["role"],
             org_id=str(row["org_id"]),
             org_name=row["org_name"],
-            created_at=row["created_at"].isoformat()
+            created_at=row["created_at"].isoformat(),
+            page_permissions=row.get("page_permissions")
         )
         for row in rows
     ]
@@ -346,7 +358,58 @@ async def create_user(
         role=row["role"],
         org_id=str(row["org_id"]),
         org_name=org_name,
-        created_at=row["created_at"].isoformat()
+        created_at=row["created_at"].isoformat(),
+        page_permissions=None,
+    )
+
+
+@router.put("/users/{user_id}/permissions", response_model=UserResponse)
+async def update_user_permissions(
+    user_id: str,
+    body: UserPermissionsUpdate,
+    user: Authed = Depends(authed),
+    db: AsyncSession = Depends(get_session)
+):
+    """
+    Set or clear a user's explicit page permissions (admin only).
+    Pass page_permissions=null to clear and fall back to role defaults.
+    """
+    require_admin(user)
+
+    # Ensure user exists
+    check_query = text("SELECT id, org_id FROM users WHERE id = :user_id")
+    existing = (await db.execute(check_query, {"user_id": user_id})).mappings().first()
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    if body.page_permissions is None:
+        update_q = text(
+            "UPDATE users SET page_permissions = NULL WHERE id = :uid RETURNING id, email, role, org_id, created_at, page_permissions"
+        )
+        row = (await db.execute(update_q, {"uid": user_id})).mappings().first()
+    else:
+        update_q = text(
+            "UPDATE users SET page_permissions = :pp WHERE id = :uid RETURNING id, email, role, org_id, created_at, page_permissions"
+        )
+        row = (await db.execute(update_q, {"uid": user_id, "pp": body.page_permissions})).mappings().first()
+
+    await db.commit()
+
+    # Get org name for response
+    org_name_q = text("SELECT name FROM organizations WHERE id = :org_id")
+    org_name = (await db.execute(org_name_q, {"org_id": row["org_id"]})).scalar()
+
+    return UserResponse(
+        id=str(row["id"]),
+        email=row["email"],
+        role=row["role"],
+        org_id=str(row["org_id"]),
+        org_name=org_name,
+        created_at=row["created_at"].isoformat(),
+        page_permissions=row.get("page_permissions"),
     )
 
 
