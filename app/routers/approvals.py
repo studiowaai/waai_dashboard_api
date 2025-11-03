@@ -312,20 +312,72 @@ async def approve_approval(
     )
     
     await db.commit()
-    
+
     # Step 4: Call n8n webhook (if URL provided)
     webhook_url = approval_row["n8n_execute_webhook_url"]
     final_status = "approved"
     error_message = None
-    
+
     if webhook_url:
         try:
             logger.info(f"Calling n8n webhook for approval {approval_id}: {webhook_url}")
-            
+
+            # Prepare payload: original data + assets with signed URLs and storage keys
+            payload_data: Dict[str, Any]
+            base_data = approval_row["data"] or {}
+            if isinstance(base_data, dict):
+                payload_data = dict(base_data)
+            else:
+                payload_data = {}
+
+            # Fetch assets to include presigned URLs in the payload
+            try:
+                assets_rows = (await db.execute(
+                    text(
+                        """
+                        SELECT id, role, storage_provider, storage_key, external_url, filename, mime_type, size_bytes
+                        FROM approval_assets
+                        WHERE approval_id = :approval_id
+                        ORDER BY created_at
+                        """
+                    ),
+                    {"approval_id": approval_id},
+                )).mappings().all()
+
+                assets_list: List[Dict[str, Any]] = []
+                assets_by_role: Dict[str, List[Dict[str, Any]]] = {}
+
+                for row in assets_rows:
+                    asset_obj = {
+                        "id": str(row["id"]),
+                        "role": row["role"],
+                        # Signed (presigned) URL provided at ingest time
+                        "external_url": row["external_url"],
+                        "filename": row["filename"],
+                        "mime_type": row["mime_type"],
+                        "size_bytes": row["size_bytes"],
+                        # Include storage references in case workflows prefer direct S3/MinIO download
+                        "storage_provider": row["storage_provider"],
+                        "storage_key": row["storage_key"],
+                    }
+                    assets_list.append(asset_obj)
+                    role = row["role"]
+                    if role not in assets_by_role:
+                        assets_by_role[role] = []
+                    assets_by_role[role].append(asset_obj)
+
+                payload_data["_assets"] = assets_list
+                payload_data["_assets_by_role"] = assets_by_role
+            except Exception as e:
+                # Fallback to sending only the original data if asset preparation fails
+                logger.warning(
+                    f"Failed to prepare assets for webhook payload on approval {approval_id}: {e}"
+                )
+
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     webhook_url,
-                    json=approval_row["data"] or {},
+                    json=payload_data,
                     headers={"Content-Type": "application/json"}
                 )
                 
