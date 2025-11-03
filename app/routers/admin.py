@@ -396,7 +396,7 @@ async def update_user_permissions(
         cleaned = [p for p in body.page_permissions if isinstance(p, str)]
         pp_json = json.dumps(cleaned)
         update_q = text(
-            "UPDATE users SET page_permissions = :pp::jsonb WHERE id = :uid RETURNING id, email, role, org_id, created_at, page_permissions"
+            "UPDATE users SET page_permissions = CAST(:pp AS JSONB) WHERE id = :uid RETURNING id, email, role, org_id, created_at, page_permissions"
         )
         row = (await db.execute(update_q, {"uid": user_id, "pp": pp_json})).mappings().first()
 
