@@ -25,12 +25,16 @@ class OrganizationCreate(BaseModel):
 class OrganizationUpdate(BaseModel):
     """Update an organization"""
     name: str = Field(..., description="New organization name")
+    n8n_transcribe_webhook_url: Optional[str] = Field(None, description="n8n transcription webhook URL")
+    n8n_prompt_webhook_url: Optional[str] = Field(None, description="n8n prompt processing webhook URL")
 
 
 class OrganizationResponse(BaseModel):
     """Organization response"""
     id: str
     name: str
+    n8n_transcribe_webhook_url: Optional[str] = None
+    n8n_prompt_webhook_url: Optional[str] = None
 
 
 class UserCreate(BaseModel):
@@ -131,11 +135,20 @@ async def list_organizations(
     """
     require_admin(user)
     
-    query = text("SELECT id, name FROM organizations ORDER BY name")
+    query = text("""
+        SELECT id, name, n8n_transcribe_webhook_url, n8n_prompt_webhook_url 
+        FROM organizations 
+        ORDER BY name
+    """)
     rows = (await db.execute(query)).mappings().all()
     
     return [
-        OrganizationResponse(id=str(row["id"]), name=row["name"])
+        OrganizationResponse(
+            id=str(row["id"]), 
+            name=row["name"],
+            n8n_transcribe_webhook_url=row["n8n_transcribe_webhook_url"],
+            n8n_prompt_webhook_url=row["n8n_prompt_webhook_url"]
+        )
         for row in rows
     ]
 
@@ -196,12 +209,19 @@ async def update_organization(
     
     query = text("""
         UPDATE organizations
-        SET name = :name
+        SET name = :name,
+            n8n_transcribe_webhook_url = :transcribe_url,
+            n8n_prompt_webhook_url = :prompt_url
         WHERE id = :org_id
-        RETURNING id, name
+        RETURNING id, name, n8n_transcribe_webhook_url, n8n_prompt_webhook_url
     """)
     
-    result = await db.execute(query, {"org_id": org_id, "name": org.name})
+    result = await db.execute(query, {
+        "org_id": org_id, 
+        "name": org.name,
+        "transcribe_url": org.n8n_transcribe_webhook_url,
+        "prompt_url": org.n8n_prompt_webhook_url
+    })
     row = result.first()
     
     if not row:
@@ -211,7 +231,12 @@ async def update_organization(
         )
     
     await db.commit()
-    return OrganizationResponse(id=str(row[0]), name=row[1])
+    return OrganizationResponse(
+        id=str(row[0]), 
+        name=row[1],
+        n8n_transcribe_webhook_url=row[2],
+        n8n_prompt_webhook_url=row[3]
+    )
 
 
 @router.delete("/organizations/{org_id}")
