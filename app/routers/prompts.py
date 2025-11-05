@@ -183,8 +183,7 @@ async def submit_prompt(
                 "prompt_text": request.prompt_text,
                 "target": request.target,
                 "org_id": auth.org_id,
-                "user_id": auth.user_id,
-                "user_email": auth.user_email
+                "user_id": auth.user_id
             }
             
             response = await client.post(
