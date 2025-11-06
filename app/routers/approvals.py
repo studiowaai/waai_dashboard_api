@@ -266,7 +266,7 @@ async def approve_approval(
     
     # Step 1: Lock and fetch approval (idempotent check)
     lock_query = text("""
-        SELECT id, org_id, status, data, n8n_execute_webhook_url, title
+        SELECT id, org_id, status, type, data, n8n_execute_webhook_url, title
         FROM approvals
         WHERE id = :approval_id AND org_id = :org_id
         FOR UPDATE
@@ -344,6 +344,11 @@ async def approve_approval(
                 payload_data = dict(base_data)
             else:
                 payload_data = {}
+
+            # Add approval metadata
+            payload_data["_approval_id"] = str(approval_id)
+            payload_data["_approval_type"] = approval_row["type"]
+            payload_data["_approval_title"] = approval_row["title"]
 
             # Fetch assets to include presigned URLs in the payload
             try:
