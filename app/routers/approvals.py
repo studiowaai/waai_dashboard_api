@@ -314,7 +314,22 @@ async def approve_approval(
     await db.commit()
 
     # Step 4: Call n8n webhook (if URL provided)
+    # First check approval-specific webhook, then fall back to org-level webhook
     webhook_url = approval_row["n8n_execute_webhook_url"]
+    
+    # If no approval-specific webhook, use org-level webhook
+    if not webhook_url:
+        org_webhook_query = text("""
+            SELECT n8n_approval_webhook_url
+            FROM organizations
+            WHERE id = :org_id
+        """)
+        org_result = await db.execute(org_webhook_query, {"org_id": approval_row["org_id"]})
+        org_row = org_result.fetchone()
+        if org_row and org_row[0]:
+            webhook_url = org_row[0]
+            logger.info(f"Using organization-level webhook for approval {approval_id}")
+    
     final_status = "approved"
     error_message = None
 
