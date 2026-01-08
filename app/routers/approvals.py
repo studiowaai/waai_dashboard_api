@@ -101,7 +101,7 @@ def _adjust_url_for_proxy(request: Request, absolute_url: str) -> str:
 @router.get("", response_model=List[ApprovalListItem])
 async def list_approvals(
     status: Optional[str] = Query(None, description="Filter by status: pending, approved, rejected, sent, failed"),
-    type: Optional[str] = Query(None, description="Filter by type: order, linkedin_post, gmail_reply"),
+    type: Optional[str] = Query(None, description="Filter by type: order, linkedin_post, gmail_reply, forward_gmail"),
     limit: int = Query(50, ge=1, le=200),
     user: Authed = Depends(authed),
     db: AsyncSession = Depends(get_session)
