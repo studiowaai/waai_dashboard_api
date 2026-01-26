@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request, Response
+from fastapi.responses import HTMLResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from enum import Enum
 import httpx
 import logging
+import uuid
+import xml.etree.ElementTree as ET
 from urllib.parse import urlparse, urlunparse
 
 from ..deps import authed, Authed
@@ -13,6 +17,251 @@ from ..db import get_session
 
 router = APIRouter(prefix="/approvals", tags=["approvals"])
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# ERROR CLASSIFICATION
+# ============================================================================
+
+class UpstreamErrorKind(str, Enum):
+    EXPIRED = "expired"
+    FORBIDDEN = "forbidden"
+    NOT_FOUND = "not_found"
+    UNAVAILABLE = "unavailable"
+    UNKNOWN = "unknown"
+
+
+def classify_upstream_error(status_code: int, body: Optional[str]) -> UpstreamErrorKind:
+    """
+    Classify upstream MinIO/S3 errors based on status code and response body.
+    
+    Args:
+        status_code: HTTP status code from upstream
+        body: Response body text (may be XML with error codes)
+    
+    Returns:
+        UpstreamErrorKind indicating the type of error
+    """
+    # Try to parse XML error codes from MinIO/S3
+    error_code = None
+    if body:
+        try:
+            # Limit body parsing to first 10KB to avoid memory issues
+            truncated_body = body[:10240] if len(body) > 10240 else body
+            
+            # Try to parse as XML
+            root = ET.fromstring(truncated_body)
+            # MinIO/S3 errors typically have <Error><Code>ErrorCode</Code></Error>
+            code_elem = root.find(".//Code")
+            if code_elem is not None and code_elem.text:
+                error_code = code_elem.text
+                logger.info(f"Parsed MinIO error code: {error_code}")
+        except ET.ParseError:
+            # Not XML, try regex fallback
+            import re
+            match = re.search(r'<Code>(\w+)</Code>', truncated_body)
+            if match:
+                error_code = match.group(1)
+                logger.info(f"Extracted MinIO error code via regex: {error_code}")
+        except Exception as e:
+            logger.debug(f"Could not parse upstream error body: {e}")
+    
+    # Classify based on error code first (most reliable)
+    if error_code in ("ExpiredToken", "RequestExpired", "TokenRefreshRequired"):
+        return UpstreamErrorKind.EXPIRED
+    elif error_code == "NoSuchKey":
+        return UpstreamErrorKind.NOT_FOUND
+    elif error_code in ("AccessDenied", "InvalidAccessKeyId", "SignatureDoesNotMatch"):
+        # AccessDenied without expired token means forbidden
+        if error_code == "AccessDenied" and not body:
+            # Fallback: could be expired, log uncertainty
+            logger.warning("AccessDenied without body - may be expired URL but cannot confirm")
+        return UpstreamErrorKind.FORBIDDEN
+    
+    # Fallback to status code classification
+    if status_code == 404:
+        return UpstreamErrorKind.NOT_FOUND
+    elif status_code == 403:
+        # Without body info, 403 could be expired or forbidden
+        # Log this uncertainty
+        logger.warning(f"403 without parseable error code - classifying as FORBIDDEN (may be expired)")
+        return UpstreamErrorKind.FORBIDDEN
+    elif 400 <= status_code < 500:
+        return UpstreamErrorKind.FORBIDDEN
+    elif 500 <= status_code < 600:
+        return UpstreamErrorKind.UNAVAILABLE
+    
+    return UpstreamErrorKind.UNKNOWN
+
+
+def render_error_html(
+    kind: UpstreamErrorKind,
+    approval_id: str,
+    asset_id: str,
+    request_id: str
+) -> str:
+    """
+    Render a user-friendly HTML error page for upstream asset errors.
+    
+    Safe to display in iframes - no scripts, no external resources.
+    Does not expose sensitive information like presigned URLs or bucket names.
+    """
+    
+    # Map error kinds to user messages
+    messages = {
+        UpstreamErrorKind.EXPIRED: {
+            "title": "Bijlage-link verlopen",
+            "message": "De link naar deze bijlage is verlopen.",
+            "actions": [
+                "Vernieuw de pagina of open de approval opnieuw",
+                "Als dit probleem blijft optreden, neem dan contact op met support"
+            ]
+        },
+        UpstreamErrorKind.FORBIDDEN: {
+            "title": "Geen toegang",
+            "message": "Je hebt geen toegang tot deze bijlage.",
+            "actions": [
+                "Controleer of je de juiste rechten hebt",
+                "Neem contact op met de eigenaar van deze approval"
+            ]
+        },
+        UpstreamErrorKind.NOT_FOUND: {
+            "title": "Bijlage niet gevonden",
+            "message": "Deze bijlage is niet gevonden. Het bestand is mogelijk verwijderd.",
+            "actions": [
+                "Controleer of de bijlage nog beschikbaar is",
+                "Neem contact op met de afzender"
+            ]
+        },
+        UpstreamErrorKind.UNAVAILABLE: {
+            "title": "Service tijdelijk niet beschikbaar",
+            "message": "De bijlage-service is tijdelijk niet beschikbaar.",
+            "actions": [
+                "Probeer het over een paar minuten opnieuw",
+                "Als dit probleem blijft optreden, neem dan contact op met support"
+            ]
+        },
+        UpstreamErrorKind.UNKNOWN: {
+            "title": "Onbekende fout",
+            "message": "Er is een onbekende fout opgetreden bij het ophalen van de bijlage.",
+            "actions": [
+                "Vernieuw de pagina en probeer het opnieuw",
+                "Neem contact op met support als dit blijft gebeuren"
+            ]
+        }
+    }
+    
+    error_info = messages.get(kind, messages[UpstreamErrorKind.UNKNOWN])
+    
+    # Generate timestamp in user-friendly format
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    
+    actions_html = "\n".join(f"<li>{action}</li>" for action in error_info["actions"])
+    
+    html = f"""<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{error_info["title"]}</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            color: #333;
+            line-height: 1.6;
+        }}
+        .container {{
+            max-width: 600px;
+            margin: 40px auto;
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        h1 {{
+            color: #d9534f;
+            font-size: 24px;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }}
+        p {{
+            margin: 10px 0;
+            font-size: 16px;
+        }}
+        .actions {{
+            background-color: #f0f8ff;
+            border-left: 4px solid #5bc0de;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }}
+        .actions h2 {{
+            margin-top: 0;
+            font-size: 18px;
+            color: #31708f;
+        }}
+        .actions ul {{
+            margin: 10px 0;
+            padding-left: 20px;
+        }}
+        .actions li {{
+            margin: 8px 0;
+        }}
+        .metadata {{
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+            font-size: 13px;
+            color: #666;
+        }}
+        .metadata-item {{
+            margin: 5px 0;
+            font-family: "Courier New", monospace;
+        }}
+        .metadata-label {{
+            font-weight: bold;
+            display: inline-block;
+            width: 120px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{error_info["title"]}</h1>
+        <p>{error_info["message"]}</p>
+        
+        <div class="actions">
+            <h2>Wat kun je doen?</h2>
+            <ul>
+                {actions_html}
+            </ul>
+        </div>
+        
+        <div class="metadata">
+            <div class="metadata-item">
+                <span class="metadata-label">Request ID:</span>
+                <span>{request_id}</span>
+            </div>
+            <div class="metadata-item">
+                <span class="metadata-label">Approval ID:</span>
+                <span>{approval_id}</span>
+            </div>
+            <div class="metadata-item">
+                <span class="metadata-label">Asset ID:</span>
+                <span>{asset_id}</span>
+            </div>
+            <div class="metadata-item">
+                <span class="metadata-label">Timestamp:</span>
+                <span>{timestamp}</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>"""
+    
+    return html
 
 # ============================================================================
 # PYDANTIC MODELS
@@ -554,7 +803,14 @@ async def view_approval_asset(
     to an internal host (e.g., srv-captain--minio).
 
     Access control: ensures the asset belongs to the user's org via join.
+    
+    Returns:
+        - On success: streams the asset with appropriate Content-Type
+        - On error: returns user-friendly HTML error page
     """
+    # Generate request ID for correlation and debugging
+    request_id = str(uuid.uuid4())
+    
     # Fetch asset joined with approval to enforce org ownership
     asset_query = text(
         """
@@ -587,20 +843,115 @@ async def view_approval_asset(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset URL missing")
 
     # Fetch the asset content from the external URL
+    upstream = None
+    upstream_body = None
+    
     try:
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             upstream = await client.get(external_url)
-    except Exception as e:
-        logger.error(f"Asset fetch failed for {asset_id}: {e}")
-        raise HTTPException(status_code=502, detail="Failed to fetch asset")
-
-    if upstream.status_code != 200:
-        logger.warning(
-            f"Asset upstream returned {upstream.status_code} for {asset_id}"
+            
+        # If not 200, read body for error classification (limit to 10KB)
+        if upstream.status_code != 200:
+            try:
+                # Read limited amount of response body for error classification
+                upstream_body = upstream.text[:10240]
+            except Exception as body_err:
+                logger.debug(f"Could not read upstream response body: {body_err}")
+                
+    except httpx.TimeoutException as e:
+        logger.error(
+            f"Asset fetch timeout for approval_id={approval_id} asset_id={asset_id} "
+            f"request_id={request_id}: {e}"
         )
-        raise HTTPException(status_code=upstream.status_code, detail="Upstream error")
+        error_html = render_error_html(
+            UpstreamErrorKind.UNAVAILABLE,
+            approval_id,
+            asset_id,
+            request_id
+        )
+        return HTMLResponse(
+            content=error_html,
+            status_code=504,
+            headers={
+                "Cache-Control": "no-store",
+                "X-Request-Id": request_id
+            }
+        )
+    except httpx.RequestError as e:
+        logger.error(
+            f"Asset fetch failed for approval_id={approval_id} asset_id={asset_id} "
+            f"request_id={request_id}: {e}"
+        )
+        error_html = render_error_html(
+            UpstreamErrorKind.UNAVAILABLE,
+            approval_id,
+            asset_id,
+            request_id
+        )
+        return HTMLResponse(
+            content=error_html,
+            status_code=502,
+            headers={
+                "Cache-Control": "no-store",
+                "X-Request-Id": request_id
+            }
+        )
+    except Exception as e:
+        logger.error(
+            f"Unexpected error fetching asset approval_id={approval_id} asset_id={asset_id} "
+            f"request_id={request_id}: {e}",
+            exc_info=True
+        )
+        error_html = render_error_html(
+            UpstreamErrorKind.UNKNOWN,
+            approval_id,
+            asset_id,
+            request_id
+        )
+        return HTMLResponse(
+            content=error_html,
+            status_code=500,
+            headers={
+                "Cache-Control": "no-store",
+                "X-Request-Id": request_id
+            }
+        )
 
-    # Determine content type and filename
+    # Handle non-200 responses from upstream
+    if upstream.status_code != 200:
+        # Classify the error
+        error_kind = classify_upstream_error(upstream.status_code, upstream_body)
+        
+        # Log with appropriate level
+        log_level = logging.ERROR if upstream.status_code >= 500 else logging.WARNING
+        logger.log(
+            log_level,
+            f"Upstream returned {upstream.status_code} for approval_id={approval_id} "
+            f"asset_id={asset_id} request_id={request_id} error_kind={error_kind.value}"
+        )
+        
+        # Render error page
+        error_html = render_error_html(error_kind, approval_id, asset_id, request_id)
+        
+        # Map error kind to appropriate HTTP status
+        status_map = {
+            UpstreamErrorKind.EXPIRED: 403,
+            UpstreamErrorKind.FORBIDDEN: 403,
+            UpstreamErrorKind.NOT_FOUND: 404,
+            UpstreamErrorKind.UNAVAILABLE: 503,
+            UpstreamErrorKind.UNKNOWN: 500
+        }
+        
+        return HTMLResponse(
+            content=error_html,
+            status_code=status_map.get(error_kind, 500),
+            headers={
+                "Cache-Control": "no-store",
+                "X-Request-Id": request_id
+            }
+        )
+
+    # Success: stream the asset
     content_type = (
         asset_row["mime_type"]
         or upstream.headers.get("content-type")
@@ -611,6 +962,7 @@ async def view_approval_asset(
     headers = {
         "Content-Disposition": f"inline; filename=\"{filename}\"",
         "Cache-Control": "private, max-age=300",
+        "X-Request-Id": request_id
     }
 
     return Response(content=upstream.content, media_type=content_type, headers=headers)
