@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info(f"🚀 Starting {API_NAME}")
     logger.info(f"🌐 CORS Origins configured: {CORS_ORIGINS}")
+    logger.info(f"🌐 CORS Origin Regex: {CORS_ORIGIN_REGEX}")
     try:
         # Test database connection
         async with engine.begin() as conn:
@@ -64,7 +65,6 @@ async def log_cors_requests(request, call_next):
 # Note: When allow_credentials=True, we cannot use allow_origins=["*"]
 # The origin must be explicitly specified
 if CORS_ORIGIN_REGEX:
-    logger.info(f"📍 Using CORS origin regex: {CORS_ORIGIN_REGEX}")
     app.add_middleware(
         CORSMiddleware,
         allow_origin_regex=CORS_ORIGIN_REGEX,
@@ -74,7 +74,6 @@ if CORS_ORIGIN_REGEX:
         expose_headers=["*"],
     )
 else:
-    logger.info(f"📍 Using CORS origins: {CORS_ORIGINS}")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=CORS_ORIGINS,
