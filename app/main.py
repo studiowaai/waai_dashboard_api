@@ -1,8 +1,11 @@
 from fastapi import FastAPI, Depends, Response, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
+import re
 
 from .config import API_NAME, CORS_ORIGINS, CORS_ORIGIN_REGEX
 from .db import get_session, engine
@@ -41,47 +44,45 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=API_NAME, lifespan=lifespan)
 
-# Add request logging middleware for debugging (BEFORE CORS middleware)
-@app.middleware("http")
-async def log_cors_requests(request, call_next):
-    origin = request.headers.get("origin", "NO-ORIGIN")
-    method = request.method
-    path = request.url.path
-    
-    if method == "OPTIONS":
-        logger.info(f"🔍 CORS Preflight: {method} {path} from origin: {origin}")
-    
-    response = await call_next(request)
-    
-    # Log CORS headers in response
-    if method == "OPTIONS":
-        allow_creds = response.headers.get("access-control-allow-credentials", "NOT-SET")
-        allow_origin = response.headers.get("access-control-allow-origin", "NOT-SET")
-        logger.info(f"✉️  Response headers: allow-credentials={allow_creds}, allow-origin={allow_origin}")
-    
-    return response
+# Custom CORS Middleware that ALWAYS sets credentials=true
+class CustomCORSMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        origin = request.headers.get("origin")
+        
+        # Check if origin is allowed
+        origin_allowed = False
+        if origin:
+            if CORS_ORIGIN_REGEX:
+                if re.match(CORS_ORIGIN_REGEX, origin):
+                    origin_allowed = True
+            elif origin in CORS_ORIGINS:
+                origin_allowed = True
+        
+        # Handle preflight
+        if request.method == "OPTIONS":
+            logger.info(f"🔍 CORS Preflight: {request.method} {request.url.path} from origin: {origin}")
+            if origin_allowed:
+                response = Response()
+                response.headers["Access-Control-Allow-Origin"] = origin
+                response.headers["Access-Control-Allow-Credentials"] = "true"
+                response.headers["Access-Control-Allow-Methods"] = "*"
+                response.headers["Access-Control-Allow-Headers"] = "*"
+                response.headers["Access-Control-Max-Age"] = "600"
+                logger.info(f"✉️  Preflight response: allow-credentials=true, allow-origin={origin}")
+                return response
+        
+        # Process request
+        response = await call_next(request)
+        
+        # Add CORS headers to response
+        if origin_allowed:
+            response.headers["Access-Control-Allow-Origin"] = origin
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+            response.headers["Access-Control-Expose-Headers"] = "*"
+        
+        return response
 
-# CORS Configuration - MUST be added AFTER custom middleware
-# Note: When allow_credentials=True, we cannot use allow_origins=["*"]
-# The origin must be explicitly specified
-if CORS_ORIGIN_REGEX:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=CORS_ORIGIN_REGEX,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["*"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=CORS_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["*"],
-    )
+app.add_middleware(CustomCORSMiddleware)
 
 @app.get("/health")
 async def health():
