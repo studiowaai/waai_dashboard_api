@@ -40,14 +40,45 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title=API_NAME, lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_origin_regex=CORS_ORIGIN_REGEX,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Add request logging middleware for debugging (BEFORE CORS middleware)
+@app.middleware("http")
+async def log_cors_requests(request, call_next):
+    origin = request.headers.get("origin", "NO-ORIGIN")
+    method = request.method
+    path = request.url.path
+    
+    if method == "OPTIONS":
+        logger.info(f"🔍 CORS Preflight: {method} {path} from origin: {origin}")
+    
+    response = await call_next(request)
+    
+    # Log CORS headers in response
+    if method == "OPTIONS":
+        allow_creds = response.headers.get("access-control-allow-credentials", "NOT-SET")
+        allow_origin = response.headers.get("access-control-allow-origin", "NOT-SET")
+        logger.info(f"✉️  Response headers: allow-credentials={allow_creds}, allow-origin={allow_origin}")
+    
+    return response
+
+# CORS Configuration - MUST be added AFTER custom middleware
+# Note: When allow_credentials=True, we cannot use allow_origins=["*"]
+# The origin must be explicitly specified
+cors_kwargs = {
+    "allow_credentials": True,
+    "allow_methods": ["*"],
+    "allow_headers": ["*"],
+    "expose_headers": ["*"],
+}
+
+# Add origins or regex, but prefer explicit origins for credentials
+if CORS_ORIGIN_REGEX:
+    cors_kwargs["allow_origin_regex"] = CORS_ORIGIN_REGEX
+    logger.info(f"📍 Using CORS origin regex: {CORS_ORIGIN_REGEX}")
+else:
+    cors_kwargs["allow_origins"] = CORS_ORIGINS
+    logger.info(f"📍 Using CORS origins: {CORS_ORIGINS}")
+
+app.add_middleware(CORSMiddleware, **cors_kwargs)
 
 @app.get("/health")
 async def health():
