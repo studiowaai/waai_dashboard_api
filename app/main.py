@@ -51,7 +51,7 @@ if CORS_ORIGIN_REGEX:
         allow_origin_regex=CORS_ORIGIN_REGEX,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["*"],
         max_age=600,
     )
 else:
@@ -61,7 +61,7 @@ else:
         allow_origins=CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type"],
+        allow_headers=["*"],
         max_age=600,
     )
 

@@ -9,7 +9,7 @@ API_NAME = "n8n Dashboard API"
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 # Support multiple CORS origins separated by comma, or "*" for all origins
-_cors_origins = os.getenv("CORS_ORIGIN", "http://localhost:3000")
+_cors_origins = os.getenv("CORS_ORIGIN", "http://localhost:8000")
 if _cors_origins.strip() == "*":
     # Note: Using '*' with allow_credentials=True is not permitted by browsers.
     # Prefer setting CORS_ORIGIN to explicit origins, or set a regex below.
