@@ -63,23 +63,26 @@ async def log_cors_requests(request, call_next):
 # CORS Configuration - MUST be added AFTER custom middleware
 # Note: When allow_credentials=True, we cannot use allow_origins=["*"]
 # The origin must be explicitly specified
-cors_kwargs = {
-    "allow_credentials": True,
-    "allow_methods": ["*"],
-    "allow_headers": ["*"],
-    "expose_headers": ["*"],
-}
-
-
-# Add origins or regex, but prefer explicit origins for credentials
 if CORS_ORIGIN_REGEX:
-    cors_kwargs["allow_origin_regex"] = CORS_ORIGIN_REGEX
     logger.info(f"📍 Using CORS origin regex: {CORS_ORIGIN_REGEX}")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=CORS_ORIGIN_REGEX,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+    )
 else:
-    cors_kwargs["allow_origins"] = CORS_ORIGINS
     logger.info(f"📍 Using CORS origins: {CORS_ORIGINS}")
-
-app.add_middleware(CORSMiddleware, **cors_kwargs)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["*"],
+    )
 
 @app.get("/health")
 async def health():
