@@ -70,6 +70,7 @@ cors_kwargs = {
     "expose_headers": ["*"],
 }
 
+
 # Add origins or regex, but prefer explicit origins for credentials
 if CORS_ORIGIN_REGEX:
     cors_kwargs["allow_origin_regex"] = CORS_ORIGIN_REGEX
