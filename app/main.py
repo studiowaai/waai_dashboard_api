@@ -24,20 +24,25 @@ async def lifespan(app: FastAPI):
     logger.info(f"🚀 Starting {API_NAME}")
     logger.info(f"🌐 CORS Origins configured: {CORS_ORIGINS}")
     logger.info(f"🌐 CORS Origin Regex: {CORS_ORIGIN_REGEX}")
-    try:
-        # Test database connection
-        async with engine.begin() as conn:
-            await conn.execute(text("SELECT 1"))
-        logger.info("✅ Database connection successful")
-    except Exception as e:
-        logger.error(f"❌ Database connection failed: {e}")
-        # Don't crash - let the app start anyway
+    
+    # Test database connection only if configured
+    if engine is not None:
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("SELECT 1"))
+            logger.info("✅ Database connection successful")
+        except Exception as e:
+            logger.error(f"❌ Database connection failed: {e}")
+            # Don't crash - let the app start anyway
+    else:
+        logger.warning("⚠️  Database not configured - skipping connection test")
     
     yield
     
     # Shutdown
     logger.info("🛑 Shutting down application")
-    await engine.dispose()
+    if engine is not None:
+        await engine.dispose()
 
 app = FastAPI(title=API_NAME, lifespan=lifespan)
 
