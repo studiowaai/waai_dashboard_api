@@ -44,6 +44,13 @@ app = FastAPI(title=API_NAME, lifespan=lifespan)
 # CORS Configuration
 # When allow_credentials=True, we cannot use wildcard origins
 # The origin must be explicitly specified or use a regex pattern
+
+# Validate that wildcard is not used with credentials
+if "*" in CORS_ORIGINS:
+    logger.error("❌ CRITICAL: Cannot use wildcard '*' in CORS_ORIGINS with credentials=True")
+    logger.error("❌ This will cause CORS errors in the browser")
+    logger.error(f"❌ Current CORS_ORIGINS: {CORS_ORIGINS}")
+
 if CORS_ORIGIN_REGEX:
     logger.info(f"📍 Configuring CORS with regex pattern: {CORS_ORIGIN_REGEX}")
     app.add_middleware(
@@ -51,7 +58,7 @@ if CORS_ORIGIN_REGEX:
         allow_origin_regex=CORS_ORIGIN_REGEX,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_headers=["Authorization", "Content-Type"],
         max_age=600,
     )
 else:
@@ -61,7 +68,7 @@ else:
         allow_origins=CORS_ORIGINS,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_headers=["Authorization", "Content-Type"],
         max_age=600,
     )
 
