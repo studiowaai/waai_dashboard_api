@@ -1,0 +1,27 @@
+# Dependencies
+node_modules
+dist
+coverage
+
+# Python virtual environments
+.venv
+.venv_py314_backup
+venv
+ENV
+env
+
+# Python
+__pycache__
+*.py[cod]
+app/
+
+# Build outputs
+build
+*.tsbuildinfo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
