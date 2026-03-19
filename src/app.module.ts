@@ -8,6 +8,9 @@ import { RunsModule } from './runs/runs.module';
 import { AdminModule } from './admin/admin.module';
 import { ApprovalsModule } from './approvals/approvals.module';
 import { PromptsModule } from './prompts/prompts.module';
+import { InboxModule } from './inbox/inbox.module';
+import { IntegrationsModule } from './integrations/integrations.module';
+import { AiModule } from './ai/ai.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -53,6 +56,9 @@ import { HealthController } from './health.controller';
     AdminModule,
     ApprovalsModule,
     PromptsModule,
+    InboxModule,
+    IntegrationsModule,
+    AiModule,
   ],
   controllers: [HealthController],
 })

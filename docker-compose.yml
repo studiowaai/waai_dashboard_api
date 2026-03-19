@@ -1,0 +1,108 @@
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: studiowaai-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-studiowaai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-studiowaai}
+      POSTGRES_DB: ${POSTGRES_DB:-studiowaai}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-studiowaai}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── Redis ───────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: studiowaai-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── NestJS API (dev) ────────────────────────────────────────
+  api-dev:
+    profiles: ["dev"]
+    container_name: studiowaai-api-dev
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-studiowaai}:${POSTGRES_PASSWORD:-studiowaai}@postgres:5432/${POSTGRES_DB:-studiowaai}
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: development
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    develop:
+      watch:
+        # Sync source files (no bind mount = native Linux fs speed)
+        - action: sync
+          path: ./src
+          target: /app/src
+        - action: sync
+          path: ./tsconfig.json
+          target: /app/tsconfig.json
+        - action: sync
+          path: ./nest-cli.json
+          target: /app/nest-cli.json
+        # Rebuild when deps change
+        - action: rebuild
+          path: ./package.json
+        - action: rebuild
+          path: ./package-lock.json
+
+  # ── NestJS API (prod) ──────────────────────────────────────
+  api-prod:
+    profiles: ["prod"]
+    container_name: studiowaai-api-prod
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-studiowaai}:${POSTGRES_PASSWORD:-studiowaai}@postgres:5432/${POSTGRES_DB:-studiowaai}
+      REDIS_URL: redis://redis:6379
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:

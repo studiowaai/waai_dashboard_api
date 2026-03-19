@@ -10,9 +10,11 @@ export class MeService {
 
   async getMe(userId: string, orgId: string, role: string) {
     const query = `
-      SELECT u.email, u.role, u.page_permissions, o.id as org_id, o.name as org_name
+      SELECT u.email, u.role, u.page_permissions,
+             u.display_name, u.avatar_url, u.google_id, u.google_email,
+             w.id as org_id, w.name as org_name
       FROM users u
-      JOIN organizations o ON o.id = u.org_id
+      JOIN workspaces w ON w.id = u.default_workspace_id
       WHERE u.id = $1
     `;
 
@@ -40,7 +42,15 @@ export class MeService {
     }
 
     return {
-      user: { id: userId, email: row.email, role: row.role },
+      user: {
+        id: userId,
+        email: row.email,
+        role: row.role,
+        display_name: row.display_name,
+        avatar_url: row.avatar_url,
+        google_connected: !!row.google_id,
+        google_email: row.google_email,
+      },
       org: { id: row.org_id.toString(), name: row.org_name },
       allowed_pages: allowedPages,
     };

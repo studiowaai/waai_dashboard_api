@@ -14,7 +14,7 @@ export class ApprovalsService {
   ) {}
 
   async listApprovals(orgId: string, status?: string, type?: string, limit: number = 50) {
-    const whereClauses = ['org_id = $1'];
+    const whereClauses = ['workspace_id = $1'];
     const params: any[] = [orgId];
     let paramIndex = 2;
 
@@ -58,7 +58,7 @@ export class ApprovalsService {
   async getApprovalDetail(approvalId: string, orgId: string, userId: string, baseUrl: string) {
     const approvalQuery = `
       SELECT id,
-             org_id,
+             workspace_id,
              type,
              status,
              title,
@@ -70,7 +70,7 @@ export class ApprovalsService {
              approved_at,
              approved_by_user_id
       FROM approvals
-      WHERE id = $1 AND org_id = $2
+      WHERE id = $1 AND workspace_id = $2
     `;
 
     const approvalResult = await this.dataSource.query(approvalQuery, [approvalId, orgId]);
@@ -124,9 +124,9 @@ export class ApprovalsService {
   async approveApproval(approvalId: string, orgId: string, userId: string) {
     // Lock row for update
     const lockQuery = `
-      SELECT id, org_id, status, type, data, n8n_execute_webhook_url, title
+      SELECT id, workspace_id, status, type, data, n8n_execute_webhook_url, title
       FROM approvals
-      WHERE id = $1 AND org_id = $2
+      WHERE id = $1 AND workspace_id = $2
       FOR UPDATE
     `;
 
@@ -169,7 +169,7 @@ export class ApprovalsService {
           _approval_id: approvalId,
           _approval_type: approval.type,
           _approval_title: approval.title,
-          _org_id: orgId,
+          _workspace_id: orgId,
           _user_id: userId,
         };
 
@@ -214,7 +214,7 @@ export class ApprovalsService {
     const lockQuery = `
       SELECT id, status
       FROM approvals
-      WHERE id = $1 AND org_id = $2
+      WHERE id = $1 AND workspace_id = $2
       FOR UPDATE
     `;
 
@@ -246,7 +246,7 @@ export class ApprovalsService {
   async viewApprovalAsset(approvalId: string, assetId: string, orgId: string) {
     // Verify approval belongs to org
     const approvalCheck = await this.dataSource.query(
-      'SELECT id FROM approvals WHERE id = $1 AND org_id = $2',
+      'SELECT id FROM approvals WHERE id = $1 AND workspace_id = $2',
       [approvalId, orgId],
     );
 

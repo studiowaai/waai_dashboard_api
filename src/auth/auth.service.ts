@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -10,8 +10,19 @@ export interface JwtPayload {
   role: string;
 }
 
+export interface GoogleLoginData {
+  googleId: string;
+  email: string;
+  displayName: string;
+  avatar?: string;
+  accessToken: string;
+  refreshToken?: string;
+}
+
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectDataSource()
     private dataSource: DataSource,
@@ -38,7 +49,7 @@ export class AuthService {
 
   async validateUser(email: string, password: string) {
     const result = await this.dataSource.query(
-      'SELECT id, org_id, role, password_hash FROM users WHERE email = $1',
+      'SELECT u.id, u.default_workspace_id, u.role, u.password_hash FROM users u WHERE u.email = $1',
       [email],
     );
 
@@ -55,8 +66,94 @@ export class AuthService {
 
     return {
       id: user.id,
-      org_id: user.org_id,
+      org_id: user.default_workspace_id,
       role: user.role,
     };
+  }
+
+  /**
+   * Handle Google OAuth login/register.
+   * - If user with this google_id exists → update tokens & login
+   * - If user with this email exists → link google_id & login
+   * - Otherwise → create new user + workspace
+   */
+  async handleGoogleLogin(data: GoogleLoginData) {
+    const { googleId, email, displayName, avatar, accessToken, refreshToken } = data;
+
+    // 1. Check by google_id
+    let user = await this.dataSource
+      .query('SELECT id, default_workspace_id, role FROM users WHERE google_id = $1', [googleId])
+      .then((r) => r[0] || null);
+
+    if (user) {
+      // Update tokens
+      await this.dataSource.query(
+        `UPDATE users SET
+          google_access_token = $1,
+          google_refresh_token = COALESCE($2, google_refresh_token),
+          google_token_expiry = NOW() + INTERVAL '1 hour',
+          google_email = $3,
+          display_name = COALESCE($4, display_name),
+          avatar_url = COALESCE($5, avatar_url)
+        WHERE google_id = $6`,
+        [accessToken, refreshToken, email, displayName, avatar, googleId],
+      );
+
+      this.logger.log(`Google login: existing user ${email}`);
+      return { id: user.id, org_id: user.default_workspace_id, role: user.role };
+    }
+
+    // 2. Check by email (link accounts)
+    user = await this.dataSource
+      .query('SELECT id, default_workspace_id, role FROM users WHERE email = $1', [email])
+      .then((r) => r[0] || null);
+
+    if (user) {
+      await this.dataSource.query(
+        `UPDATE users SET
+          google_id = $1,
+          google_access_token = $2,
+          google_refresh_token = COALESCE($3, google_refresh_token),
+          google_token_expiry = NOW() + INTERVAL '1 hour',
+          google_email = $4,
+          display_name = COALESCE($5, display_name),
+          avatar_url = COALESCE($6, avatar_url)
+        WHERE email = $7`,
+        [googleId, accessToken, refreshToken, email, displayName, avatar, email],
+      );
+
+      this.logger.log(`Google login: linked to existing user ${email}`);
+      return { id: user.id, org_id: user.default_workspace_id, role: user.role };
+    }
+
+    // 3. New user → create workspace + user + membership
+    this.logger.log(`Google login: creating new user ${email}`);
+
+    const workspaceName = displayName ? `${displayName}'s Workspace` : 'Mijn Workspace';
+    const slug = email.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '-');
+
+    const wsResult = await this.dataSource.query(
+      `INSERT INTO workspaces (id, name, slug) VALUES (gen_random_uuid(), $1, $2)
+       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+       RETURNING id`,
+      [workspaceName, slug],
+    );
+    const workspaceId = wsResult[0].id;
+
+    const userResult = await this.dataSource.query(
+      `INSERT INTO users (id, email, role, default_workspace_id, google_id, google_email, google_access_token, google_refresh_token, google_token_expiry, display_name, avatar_url)
+       VALUES (gen_random_uuid(), $1, 'admin', $2, $3, $4, $5, $6, NOW() + INTERVAL '1 hour', $7, $8)
+       RETURNING id, default_workspace_id, role`,
+      [email, workspaceId, googleId, email, accessToken, refreshToken, displayName, avatar],
+    );
+    const newUser = userResult[0];
+
+    await this.dataSource.query(
+      `INSERT INTO workspace_members (id, workspace_id, user_id, role)
+       VALUES (gen_random_uuid(), $1, $2, 'owner')`,
+      [workspaceId, newUser.id],
+    );
+
+    return { id: newUser.id, org_id: newUser.default_workspace_id, role: newUser.role };
   }
 }

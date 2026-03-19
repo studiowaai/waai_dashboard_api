@@ -32,7 +32,7 @@ export class AdminService {
   async listOrganizations() {
     const query = `
       SELECT id, name, n8n_transcribe_webhook_url, n8n_prompt_webhook_url, n8n_approval_webhook_url 
-      FROM organizations 
+      FROM workspaces 
       ORDER BY name
     `;
     const rows = await this.dataSource.query(query);
@@ -48,7 +48,7 @@ export class AdminService {
 
   async createOrganization(name: string) {
     const query = `
-      INSERT INTO organizations (name)
+      INSERT INTO workspaces (name)
       VALUES ($1)
       RETURNING id, name
     `;
@@ -61,7 +61,7 @@ export class AdminService {
     // Create default ingest token
     const token = this.generateIngestToken();
     const tokenQuery = `
-      INSERT INTO ingest_tokens (org_id, token, name, is_active)
+      INSERT INTO ingest_tokens (workspace_id, token, name, is_active)
       VALUES ($1, $2, $3, TRUE)
     `;
 
@@ -81,7 +81,7 @@ export class AdminService {
     approvalUrl?: string,
   ) {
     const query = `
-      UPDATE organizations
+      UPDATE workspaces
       SET name = $1,
           n8n_transcribe_webhook_url = $2,
           n8n_prompt_webhook_url = $3,
@@ -114,14 +114,14 @@ export class AdminService {
   }
 
   async deleteOrganization(orgId: string) {
-    const checkQuery = 'SELECT id FROM organizations WHERE id = $1';
+    const checkQuery = 'SELECT id FROM workspaces WHERE id = $1';
     const row = await this.dataSource.query(checkQuery, [orgId]);
 
     if (!row || row.length === 0) {
       throw new NotFoundException('Organization not found');
     }
 
-    const deleteQuery = 'DELETE FROM organizations WHERE id = $1';
+    const deleteQuery = 'DELETE FROM workspaces WHERE id = $1';
     await this.dataSource.query(deleteQuery, [orgId]);
 
     return { ok: true, message: 'Organization deleted successfully' };
@@ -135,18 +135,18 @@ export class AdminService {
 
     if (orgId) {
       query = `
-        SELECT u.id, u.email, u.role, u.org_id, u.created_at, u.page_permissions, o.name as org_name
+        SELECT u.id, u.email, u.role, u.default_workspace_id, u.created_at, u.page_permissions, w.name as org_name
         FROM users u
-        JOIN organizations o ON o.id = u.org_id
-        WHERE u.org_id = $1
+        JOIN workspaces w ON w.id = u.default_workspace_id
+        WHERE u.default_workspace_id = $1
         ORDER BY u.email
       `;
       params = [orgId];
     } else {
       query = `
-        SELECT u.id, u.email, u.role, u.org_id, u.created_at, u.page_permissions, o.name as org_name
+        SELECT u.id, u.email, u.role, u.default_workspace_id, u.created_at, u.page_permissions, w.name as org_name
         FROM users u
-        JOIN organizations o ON o.id = u.org_id
+        JOIN workspaces w ON w.id = u.default_workspace_id
         ORDER BY o.name, u.email
       `;
       params = [];
@@ -158,7 +158,7 @@ export class AdminService {
       id: row.id.toString(),
       email: row.email,
       role: row.role,
-      org_id: row.org_id.toString(),
+      org_id: row.default_workspace_id.toString(),
       org_name: row.org_name,
       created_at: row.created_at.toISOString(),
       page_permissions: row.page_permissions,
@@ -171,7 +171,7 @@ export class AdminService {
     }
 
     // Check if org exists
-    const orgCheck = await this.dataSource.query('SELECT id FROM organizations WHERE id = $1', [
+    const orgCheck = await this.dataSource.query('SELECT id FROM workspaces WHERE id = $1', [
       orgId,
     ]);
 
@@ -193,9 +193,9 @@ export class AdminService {
 
     // Create user
     const query = `
-      INSERT INTO users (org_id, email, password_hash, role)
+      INSERT INTO users (default_workspace_id, email, password_hash, role)
       VALUES ($1, $2, $3, $4)
-      RETURNING id, email, role, org_id, created_at
+      RETURNING id, email, role, default_workspace_id, created_at
     `;
 
     const result = await this.dataSource.query(query, [orgId, email, passwordHash, role]);
@@ -203,7 +203,7 @@ export class AdminService {
 
     // Get org name
     const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM organizations WHERE id = $1',
+      'SELECT name FROM workspaces WHERE id = $1',
       [orgId],
     );
     const orgName = orgNameQuery[0].name;
@@ -212,7 +212,7 @@ export class AdminService {
       id: row.id.toString(),
       email: row.email,
       role: row.role,
-      org_id: row.org_id.toString(),
+      org_id: row.default_workspace_id.toString(),
       org_name: orgName,
       created_at: row.created_at.toISOString(),
       page_permissions: null,
@@ -220,7 +220,7 @@ export class AdminService {
   }
 
   async updateUserPermissions(userId: string, pagePermissions: string[] | null) {
-    const checkQuery = 'SELECT id, org_id FROM users WHERE id = $1';
+    const checkQuery = 'SELECT id, default_workspace_id FROM users WHERE id = $1';
     const existing = await this.dataSource.query(checkQuery, [userId]);
 
     if (!existing || existing.length === 0) {
@@ -233,7 +233,7 @@ export class AdminService {
     if (pagePermissions === null) {
       query = `
         UPDATE users SET page_permissions = NULL WHERE id = $1
-        RETURNING id, email, role, org_id, created_at, page_permissions
+        RETURNING id, email, role, default_workspace_id, created_at, page_permissions
       `;
       result = await this.dataSource.query(query, [userId]);
     } else {
@@ -242,7 +242,7 @@ export class AdminService {
 
       query = `
         UPDATE users SET page_permissions = $1::jsonb WHERE id = $2
-        RETURNING id, email, role, org_id, created_at, page_permissions
+        RETURNING id, email, role, default_workspace_id, created_at, page_permissions
       `;
       result = await this.dataSource.query(query, [ppJson, userId]);
     }
@@ -251,8 +251,8 @@ export class AdminService {
 
     // Get org name
     const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM organizations WHERE id = $1',
-      [row.org_id],
+      'SELECT name FROM workspaces WHERE id = $1',
+      [row.default_workspace_id],
     );
     const orgName = orgNameQuery[0].name;
 
@@ -260,7 +260,7 @@ export class AdminService {
       id: row.id.toString(),
       email: row.email,
       role: row.role,
-      org_id: row.org_id.toString(),
+      org_id: row.default_workspace_id.toString(),
       org_name: orgName,
       created_at: row.created_at.toISOString(),
       page_permissions: row.page_permissions,
@@ -268,7 +268,7 @@ export class AdminService {
   }
 
   async updateUser(userId: string, email?: string, password?: string, role?: string) {
-    const checkQuery = 'SELECT id, org_id FROM users WHERE id = $1';
+    const checkQuery = 'SELECT id, default_workspace_id FROM users WHERE id = $1';
     const existing = await this.dataSource.query(checkQuery, [userId]);
 
     if (!existing || existing.length === 0) {
@@ -311,9 +311,9 @@ export class AdminService {
     if (updates.length === 0) {
       // No updates, just return existing user
       const query = `
-        SELECT u.id, u.email, u.role, u.org_id, u.created_at, u.page_permissions, o.name as org_name
+        SELECT u.id, u.email, u.role, u.default_workspace_id, u.created_at, u.page_permissions, w.name as org_name
         FROM users u
-        JOIN organizations o ON o.id = u.org_id
+        JOIN workspaces w ON w.id = u.default_workspace_id
         WHERE u.id = $1
       `;
       const result = await this.dataSource.query(query, [userId]);
@@ -323,7 +323,7 @@ export class AdminService {
         id: row.id.toString(),
         email: row.email,
         role: row.role,
-        org_id: row.org_id.toString(),
+        org_id: row.default_workspace_id.toString(),
         org_name: row.org_name,
         created_at: row.created_at.toISOString(),
         page_permissions: row.page_permissions,
@@ -336,7 +336,7 @@ export class AdminService {
       UPDATE users
       SET ${updates.join(', ')}
       WHERE id = $${paramIndex}
-      RETURNING id, email, role, org_id, created_at, page_permissions
+      RETURNING id, email, role, default_workspace_id, created_at, page_permissions
     `;
 
     const result = await this.dataSource.query(query, params);
@@ -344,8 +344,8 @@ export class AdminService {
 
     // Get org name
     const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM organizations WHERE id = $1',
-      [row.org_id],
+      'SELECT name FROM workspaces WHERE id = $1',
+      [row.default_workspace_id],
     );
     const orgName = orgNameQuery[0].name;
 
@@ -353,7 +353,7 @@ export class AdminService {
       id: row.id.toString(),
       email: row.email,
       role: row.role,
-      org_id: row.org_id.toString(),
+      org_id: row.default_workspace_id.toString(),
       org_name: orgName,
       created_at: row.created_at.toISOString(),
       page_permissions: row.page_permissions,
@@ -382,18 +382,18 @@ export class AdminService {
 
     if (orgId) {
       query = `
-        SELECT it.id, it.org_id, it.token, it.name, it.is_active, it.created_at, o.name as org_name
+        SELECT it.id, it.workspace_id, it.token, it.name, it.is_active, it.created_at, w.name as org_name
         FROM ingest_tokens it
-        JOIN organizations o ON o.id = it.org_id
-        WHERE it.org_id = $1
+        JOIN workspaces w ON w.id = it.workspace_id
+        WHERE it.workspace_id = $1
         ORDER BY it.created_at DESC
       `;
       params = [orgId];
     } else {
       query = `
-        SELECT it.id, it.org_id, it.token, it.name, it.is_active, it.created_at, o.name as org_name
+        SELECT it.id, it.workspace_id, it.token, it.name, it.is_active, it.created_at, w.name as org_name
         FROM ingest_tokens it
-        JOIN organizations o ON o.id = it.org_id
+        JOIN workspaces w ON w.id = it.workspace_id
         ORDER BY o.name, it.created_at DESC
       `;
       params = [];
@@ -403,7 +403,7 @@ export class AdminService {
 
     return rows.map((row: any) => ({
       id: row.id.toString(),
-      org_id: row.org_id.toString(),
+      org_id: row.default_workspace_id.toString(),
       org_name: row.org_name,
       token: row.token,
       name: row.name,
@@ -413,7 +413,7 @@ export class AdminService {
   }
 
   async createIngestToken(orgId: string, name: string) {
-    const orgCheck = await this.dataSource.query('SELECT id FROM organizations WHERE id = $1', [
+    const orgCheck = await this.dataSource.query('SELECT id FROM workspaces WHERE id = $1', [
       orgId,
     ]);
 
@@ -424,23 +424,23 @@ export class AdminService {
     const token = this.generateIngestToken();
 
     const query = `
-      INSERT INTO ingest_tokens (org_id, token, name, is_active)
+      INSERT INTO ingest_tokens (workspace_id, token, name, is_active)
       VALUES ($1, $2, $3, TRUE)
-      RETURNING id, org_id, token, name, is_active, created_at
+      RETURNING id, workspace_id, token, name, is_active, created_at
     `;
 
     const result = await this.dataSource.query(query, [orgId, token, name]);
     const row = result[0];
 
     const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM organizations WHERE id = $1',
+      'SELECT name FROM workspaces WHERE id = $1',
       [orgId],
     );
     const orgName = orgNameQuery[0].name;
 
     return {
       id: row.id.toString(),
-      org_id: row.org_id.toString(),
+      org_id: row.default_workspace_id.toString(),
       org_name: orgName,
       token: row.token,
       name: row.name,
@@ -450,7 +450,7 @@ export class AdminService {
   }
 
   async updateIngestToken(tokenId: string, name?: string, isActive?: boolean) {
-    const checkQuery = 'SELECT id, org_id FROM ingest_tokens WHERE id = $1';
+    const checkQuery = 'SELECT id, workspace_id FROM ingest_tokens WHERE id = $1';
     const existing = await this.dataSource.query(checkQuery, [tokenId]);
 
     if (!existing || existing.length === 0) {
@@ -473,9 +473,9 @@ export class AdminService {
 
     if (updates.length === 0) {
       const query = `
-        SELECT it.id, it.org_id, it.token, it.name, it.is_active, it.created_at, o.name as org_name
+        SELECT it.id, it.workspace_id, it.token, it.name, it.is_active, it.created_at, w.name as org_name
         FROM ingest_tokens it
-        JOIN organizations o ON o.id = it.org_id
+        JOIN workspaces w ON w.id = it.workspace_id
         WHERE it.id = $1
       `;
       const result = await this.dataSource.query(query, [tokenId]);
@@ -483,7 +483,7 @@ export class AdminService {
 
       return {
         id: row.id.toString(),
-        org_id: row.org_id.toString(),
+        org_id: row.default_workspace_id.toString(),
         org_name: row.org_name,
         token: row.token,
         name: row.name,
@@ -498,21 +498,21 @@ export class AdminService {
       UPDATE ingest_tokens
       SET ${updates.join(', ')}
       WHERE id = $${paramIndex}
-      RETURNING id, org_id, token, name, is_active, created_at
+      RETURNING id, workspace_id, token, name, is_active, created_at
     `;
 
     const result = await this.dataSource.query(query, params);
     const row = result[0];
 
     const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM organizations WHERE id = $1',
-      [row.org_id],
+      'SELECT name FROM workspaces WHERE id = $1',
+      [row.default_workspace_id],
     );
     const orgName = orgNameQuery[0].name;
 
     return {
       id: row.id.toString(),
-      org_id: row.org_id.toString(),
+      org_id: row.default_workspace_id.toString(),
       org_name: orgName,
       token: row.token,
       name: row.name,
