@@ -164,6 +164,61 @@ export class GmailService {
   }
 
   /**
+   * Send an email reply to a message
+   */
+  async sendReply(
+    userId: string,
+    originalMessageId: string,
+    threadId: string,
+    to: string,
+    subject: string,
+    body: string,
+  ) {
+    const gmail = await this.getGmailClient(userId);
+
+    // Get sender email for From header
+    const profile = await gmail.users.getProfile({ userId: 'me' });
+    const from = profile.data.emailAddress || '';
+
+    // Build the Reply-To subject
+    const replySubject = subject.startsWith('Re:') ? subject : `Re: ${subject}`;
+
+    // Construct RFC 2822 email
+    const emailLines = [
+      `From: ${from}`,
+      `To: ${to}`,
+      `Subject: ${replySubject}`,
+      `In-Reply-To: ${originalMessageId}`,
+      `References: ${originalMessageId}`,
+      `Content-Type: text/html; charset=utf-8`,
+      `MIME-Version: 1.0`,
+      '',
+      body,
+    ];
+
+    const raw = Buffer.from(emailLines.join('\r\n'))
+      .toString('base64')
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+
+    const result = await gmail.users.messages.send({
+      userId: 'me',
+      requestBody: {
+        raw,
+        threadId,
+      },
+    });
+
+    this.logger.log(`Sent reply to ${to} (messageId: ${result.data.id})`);
+
+    return {
+      messageId: result.data.id,
+      threadId: result.data.threadId,
+    };
+  }
+
+  /**
    * Parse a Gmail API message into our format
    */
   private parseMessage(msg: gmail_v1.Schema$Message): GmailMessage {

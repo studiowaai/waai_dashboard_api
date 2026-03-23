@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { MeModule } from './me/me.module';
 import { StatsModule } from './stats/stats.module';
@@ -11,6 +13,9 @@ import { PromptsModule } from './prompts/prompts.module';
 import { InboxModule } from './inbox/inbox.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AiModule } from './ai/ai.module';
+import { WorkspacesModule } from './workspaces/workspaces.module';
+import { ShopifyModule } from './shopify/shopify.module';
+import { WorkersModule } from './workers/workers.module';
 import { HealthController } from './health.controller';
 
 @Module({
@@ -43,12 +48,19 @@ import { HealthController } from './health.controller';
           password: url.password,
           database: url.pathname.slice(1),
           entities: [],
-          synchronize: false, // Don't auto-sync, use migrations
+          synchronize: false,
           logging: false,
           ssl: url.searchParams.get('sslmode') ? { rejectUnauthorized: false } : false,
         };
       },
     }),
+    // Rate limiting: 60 requests per minute per IP
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 60,
+      },
+    ]),
     AuthModule,
     MeModule,
     StatsModule,
@@ -59,7 +71,16 @@ import { HealthController } from './health.controller';
     InboxModule,
     IntegrationsModule,
     AiModule,
+    WorkspacesModule,
+    ShopifyModule,
+    WorkersModule,
   ],
   controllers: [HealthController],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

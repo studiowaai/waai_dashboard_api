@@ -2,21 +2,28 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
+import Anthropic from '@anthropic-ai/sdk';
 
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name);
+  private anthropic: Anthropic | null = null;
 
   constructor(
     @InjectDataSource() private dataSource: DataSource,
     private configService: ConfigService,
-  ) {}
+  ) {
+    const apiKey = this.configService.get<string>('ANTHROPIC_API_KEY');
+    if (apiKey) {
+      this.anthropic = new Anthropic({ apiKey });
+      this.logger.log('Anthropic Claude initialized for AI suggestions');
+    } else {
+      this.logger.warn('ANTHROPIC_API_KEY not set — using fallback templates');
+    }
+  }
 
   /**
    * Generate an AI suggestion for a conversation.
-   *
-   * This gathers conversation context (messages, contact info, Shopify context)
-   * and calls the configured AI provider to generate a response.
    */
   async generateSuggestion(
     conversationId: string,
@@ -48,7 +55,7 @@ export class AiService {
       [conversationId],
     );
 
-    // 3. Build context for AI
+    // 3. Build context
     const context = {
       conversation: conversation[0],
       messages: messages.map((m: any) => ({
@@ -60,9 +67,23 @@ export class AiService {
     };
 
     // 4. Generate AI response
-    // TODO: Integrate with actual AI provider (OpenAI, Anthropic, etc.)
-    // For now, generate a placeholder that demonstrates the data flow
-    const aiContent = this.generatePlaceholderResponse(type, context);
+    let aiContent: string;
+    let model = 'fallback';
+    let confidence = 0.75;
+
+    if (this.anthropic) {
+      try {
+        const result = await this.callClaude(type, context);
+        aiContent = result.content;
+        model = result.model;
+        confidence = result.confidence;
+      } catch (err) {
+        this.logger.error(`Claude AI error: ${err.message}`);
+        aiContent = this.generateFallbackResponse(type, context);
+      }
+    } else {
+      aiContent = this.generateFallbackResponse(type, context);
+    }
 
     // 5. Store the suggestion
     const result = await this.dataSource.query(
@@ -73,8 +94,8 @@ export class AiService {
         conversationId,
         type,
         aiContent,
-        0.85,
-        'placeholder',
+        confidence,
+        model,
         JSON.stringify({ instructions, message_count: messages.length }),
       ],
     );
@@ -89,10 +110,69 @@ export class AiService {
   }
 
   /**
+   * Call Claude for different suggestion types.
+   */
+  private async callClaude(
+    type: string,
+    context: { conversation: any; messages: any[]; instructions?: string },
+  ): Promise<{ content: string; model: string; confidence: number }> {
+    const contact =
+      context.conversation.contact_name || context.conversation.contact_email || 'klant';
+    const subject = context.conversation.subject || 'geen onderwerp';
+    const messageHistory = context.messages
+      .map((m: any) => `[${m.role}]: ${m.content?.substring(0, 500) || ''}`)
+      .join('\n');
+
+    let systemPrompt: string;
+    let userPrompt: string;
+
+    switch (type) {
+      case 'reply':
+        systemPrompt = `Je bent een professionele klantenservice medewerker. Schrijf een beleefde, behulpzame reactie in het Nederlands.
+Gebruik HTML-opmaak met <p> tags. Houd het professioneel maar warm.
+${context.instructions ? `Extra instructie: ${context.instructions}` : ''}`;
+        userPrompt = `Gesprek met ${contact} over "${subject}":\n\n${messageHistory}\n\nSchrijf een passend antwoord:`;
+        break;
+
+      case 'summary':
+        systemPrompt = `Je bent een AI assistent die klantenservice gesprekken samenvat. Schrijf een beknopte samenvatting in het Nederlands (max 3 zinnen).`;
+        userPrompt = `Vat dit gesprek samen:\n\nOnderwerp: ${subject}\nKlant: ${contact}\n\n${messageHistory}`;
+        break;
+
+      case 'classification':
+        systemPrompt = `Je classificeert klantenservice berichten. Antwoord met EXACT één van deze categorieën: offer_request, general_question, complaint, shipping, return, technical, billing, other. Geen uitleg, alleen de categorie.`;
+        userPrompt = `Classificeer dit gesprek:\n\nOnderwerp: ${subject}\n\n${messageHistory}`;
+        break;
+
+      case 'sentiment':
+        systemPrompt = `Je analyseert de stemming van klantberichten. Antwoord met EXACT één van: positive, neutral, negative, urgent. Geen uitleg, alleen het sentiment.`;
+        userPrompt = `Bepaal het sentiment van de klant:\n\n${messageHistory}`;
+        break;
+
+      default:
+        throw new Error(`Unknown suggestion type: ${type}`);
+    }
+
+    const message = await this.anthropic!.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1024,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: userPrompt }],
+    });
+
+    const content = message.content[0]?.type === 'text' ? message.content[0].text : '';
+
+    return {
+      content,
+      model: message.model,
+      confidence: type === 'reply' ? 0.85 : 0.9,
+    };
+  }
+
+  /**
    * List all suggestions for a conversation.
    */
   async listSuggestions(conversationId: string, workspaceId: string) {
-    // Verify ownership
     const check = await this.dataSource.query(
       `SELECT id FROM conversations WHERE id = $1 AND workspace_id = $2`,
       [conversationId, workspaceId],
@@ -112,9 +192,9 @@ export class AiService {
   }
 
   /**
-   * Placeholder response generator — will be replaced with actual AI integration.
+   * Fallback templates when Claude is not available.
    */
-  private generatePlaceholderResponse(
+  private generateFallbackResponse(
     type: string,
     context: { conversation: any; messages: any[]; instructions?: string },
   ): string {
@@ -123,17 +203,13 @@ export class AiService {
 
     switch (type) {
       case 'reply':
-        return `Beste ${contact},\n\nBedankt voor uw bericht. We hebben uw vraag ontvangen en zullen hier zo snel mogelijk op reageren.\n\nMet vriendelijke groet,\nHet Support Team`;
-
+        return `<p>Beste ${contact},</p><p>Bedankt voor uw bericht. We hebben uw vraag ontvangen en zullen hier zo snel mogelijk op reageren.</p><p>Met vriendelijke groet,<br>Het Support Team</p>`;
       case 'summary':
         return `Gesprek met ${contact} over "${context.conversation.subject || 'geen onderwerp'}". ${context.messages.length} berichten uitgewisseld. Prioriteit: ${context.conversation.priority || 'normaal'}.`;
-
       case 'classification':
         return 'general_question';
-
       case 'sentiment':
         return 'neutral';
-
       default:
         return 'AI suggestion generated';
     }

@@ -76,6 +76,9 @@ export class AuthService {
    * - If user with this google_id exists → update tokens & login
    * - If user with this email exists → link google_id & login
    * - Otherwise → create new user + workspace
+   *
+   * Also persists the Gmail connection as a connected_account so it
+   * appears on the Integraties page alongside Shopify, WooCommerce, etc.
    */
   async handleGoogleLogin(data: GoogleLoginData) {
     const { googleId, email, displayName, avatar, accessToken, refreshToken } = data;
@@ -99,6 +102,15 @@ export class AuthService {
         [accessToken, refreshToken, email, displayName, avatar, googleId],
       );
 
+      // Persist Gmail as connected_account
+      await this.saveGmailConnectedAccount(
+        user.default_workspace_id,
+        user.id,
+        email,
+        accessToken,
+        refreshToken,
+      );
+
       this.logger.log(`Google login: existing user ${email}`);
       return { id: user.id, org_id: user.default_workspace_id, role: user.role };
     }
@@ -120,6 +132,15 @@ export class AuthService {
           avatar_url = COALESCE($6, avatar_url)
         WHERE email = $7`,
         [googleId, accessToken, refreshToken, email, displayName, avatar, email],
+      );
+
+      // Persist Gmail as connected_account
+      await this.saveGmailConnectedAccount(
+        user.default_workspace_id,
+        user.id,
+        email,
+        accessToken,
+        refreshToken,
       );
 
       this.logger.log(`Google login: linked to existing user ${email}`);
@@ -154,6 +175,56 @@ export class AuthService {
       [workspaceId, newUser.id],
     );
 
+    // Persist Gmail as connected_account
+    await this.saveGmailConnectedAccount(
+      newUser.default_workspace_id,
+      newUser.id,
+      email,
+      accessToken,
+      refreshToken,
+    );
+
     return { id: newUser.id, org_id: newUser.default_workspace_id, role: newUser.role };
+  }
+
+  /**
+   * Save or update the Gmail integration as a connected_account.
+   * This lets it appear in the Integraties page alongside Shopify, etc.
+   */
+  private async saveGmailConnectedAccount(
+    workspaceId: string,
+    userId: string,
+    email: string,
+    accessToken: string,
+    refreshToken?: string,
+  ) {
+    try {
+      await this.dataSource.query(
+        `INSERT INTO connected_accounts
+           (workspace_id, provider_id, label, status, credentials_enc, metadata, connected_by, connected_at)
+         VALUES ($1, 'gmail', $2, 'active', $3::bytea, $4, $5, NOW())
+         ON CONFLICT (workspace_id, provider_id, label) DO UPDATE SET
+           credentials_enc = EXCLUDED.credentials_enc,
+           status = 'active',
+           metadata = EXCLUDED.metadata,
+           connected_at = NOW()`,
+        [
+          workspaceId,
+          email,
+          Buffer.from(
+            JSON.stringify({
+              access_token: accessToken,
+              refresh_token: refreshToken || null,
+            }),
+          ),
+          JSON.stringify({ email, type: 'google_oauth' }),
+          userId,
+        ],
+      );
+      this.logger.log(`Gmail connected_account saved for ${email} in workspace ${workspaceId}`);
+    } catch (err) {
+      // Non-fatal: the user can still use Gmail via tokens on the users table
+      this.logger.warn(`Could not save Gmail connected_account: ${err.message}`);
+    }
   }
 }

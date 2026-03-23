@@ -13,8 +13,122 @@ export class IntegrationsService {
 
   async listProviders() {
     return this.dataSource.query(
-      `SELECT id, name, category, auth_type, is_active FROM integration_providers WHERE is_active = true ORDER BY name`,
+      `SELECT id, name, category, auth_type, is_active, description, icon, website,
+              config->'fields' as config_fields
+       FROM integration_providers
+       WHERE is_active = true
+       ORDER BY name`,
     );
+  }
+
+  /**
+   * Get a single provider details with its workspace-specific config status.
+   */
+  async getProviderWithConfig(providerId: string, workspaceId: string) {
+    const provider = await this.dataSource.query(
+      `SELECT id, name, category, auth_type, description, icon, website,
+              config->'fields' as config_fields, config->'scopes' as scopes
+       FROM integration_providers WHERE id = $1 AND is_active = true`,
+      [providerId],
+    );
+
+    if (!provider?.length) throw new NotFoundException(`Provider '${providerId}' not found`);
+
+    // Get workspace-level config (without secrets)
+    const wpc = await this.dataSource.query(
+      `SELECT id, config, configured_by, updated_at FROM workspace_provider_configs
+       WHERE workspace_id = $1 AND provider_id = $2`,
+      [workspaceId, providerId],
+    );
+
+    // Get connected accounts
+    const accounts = await this.dataSource.query(
+      `SELECT ca.id, ca.label, ca.status, ca.connected_at, ca.metadata
+       FROM connected_accounts ca WHERE ca.workspace_id = $1 AND ca.provider_id = $2
+       ORDER BY ca.connected_at DESC`,
+      [workspaceId, providerId],
+    );
+
+    return {
+      ...provider[0],
+      workspace_config: wpc?.length
+        ? { configured: true, updated_at: wpc[0].updated_at }
+        : { configured: false },
+      connected_accounts: accounts,
+    };
+  }
+
+  // ==================== WORKSPACE PROVIDER CONFIG ====================
+
+  /**
+   * Save workspace-level configuration for a provider (e.g. Shopify client_id/secret).
+   */
+  async saveProviderConfig(
+    workspaceId: string,
+    providerId: string,
+    config: Record<string, any>,
+    userId: string,
+  ) {
+    // Verify provider exists
+    const provider = await this.dataSource.query(
+      `SELECT id FROM integration_providers WHERE id = $1 AND is_active = true`,
+      [providerId],
+    );
+    if (!provider?.length) throw new NotFoundException(`Provider '${providerId}' not found`);
+
+    await this.dataSource.query(
+      `INSERT INTO workspace_provider_configs (workspace_id, provider_id, config, configured_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (workspace_id, provider_id) DO UPDATE SET
+         config = EXCLUDED.config,
+         configured_by = EXCLUDED.configured_by,
+         updated_at = NOW()`,
+      [workspaceId, providerId, JSON.stringify(config), userId],
+    );
+
+    this.logger.log(`Provider config saved: ${providerId} for workspace ${workspaceId}`);
+    return { ok: true, provider_id: providerId };
+  }
+
+  /**
+   * Get workspace config for a provider (masks secret fields).
+   */
+  async getProviderConfig(workspaceId: string, providerId: string) {
+    // Get the field definitions from integration_providers
+    const provider = await this.dataSource.query(
+      `SELECT config->'fields' as fields FROM integration_providers WHERE id = $1`,
+      [providerId],
+    );
+
+    const wpc = await this.dataSource.query(
+      `SELECT config, updated_at FROM workspace_provider_configs
+       WHERE workspace_id = $1 AND provider_id = $2`,
+      [workspaceId, providerId],
+    );
+
+    if (!wpc?.length) return { configured: false, config: {}, fields: provider?.[0]?.fields || [] };
+
+    // Mask secret fields (type = 'password')
+    const fields = provider?.[0]?.fields || [];
+    const maskedConfig = { ...wpc[0].config };
+    for (const field of fields) {
+      if (field.type === 'password' && maskedConfig[field.key]) {
+        maskedConfig[field.key] = '••••••••' + maskedConfig[field.key].slice(-4);
+      }
+    }
+
+    return { configured: true, config: maskedConfig, updated_at: wpc[0].updated_at, fields };
+  }
+
+  /**
+   * Delete workspace provider config.
+   */
+  async deleteProviderConfig(workspaceId: string, providerId: string) {
+    await this.dataSource.query(
+      `DELETE FROM workspace_provider_configs WHERE workspace_id = $1 AND provider_id = $2`,
+      [workspaceId, providerId],
+    );
+    return { ok: true };
   }
 
   // ==================== CONNECTED ACCOUNTS ====================

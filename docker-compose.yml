@@ -71,6 +71,13 @@ services:
         - action: sync
           path: ./nest-cli.json
           target: /app/nest-cli.json
+        # Sync migration files
+        - action: sync
+          path: ./migrations
+          target: /app/migrations
+        - action: sync
+          path: ./scripts
+          target: /app/scripts
         # Rebuild when deps change
         - action: rebuild
           path: ./package.json

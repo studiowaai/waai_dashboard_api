@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Delete,
   Param,
   Body,
@@ -24,6 +25,32 @@ export class IntegrationsController {
   @Get('providers')
   async listProviders() {
     return this.integrationsService.listProviders();
+  }
+
+  @Get('providers/:id')
+  async getProvider(@CurrentUser() user: AuthedUser, @Param('id') id: string) {
+    return this.integrationsService.getProviderWithConfig(id, user.orgId);
+  }
+
+  // ── Workspace Provider Config ────────────────────────────
+
+  @Get('providers/:id/config')
+  async getProviderConfig(@CurrentUser() user: AuthedUser, @Param('id') id: string) {
+    return this.integrationsService.getProviderConfig(user.orgId, id);
+  }
+
+  @Put('providers/:id/config')
+  async saveProviderConfig(
+    @CurrentUser() user: AuthedUser,
+    @Param('id') id: string,
+    @Body() body: Record<string, any>,
+  ) {
+    return this.integrationsService.saveProviderConfig(user.orgId, id, body, user.userId);
+  }
+
+  @Delete('providers/:id/config')
+  async deleteProviderConfig(@CurrentUser() user: AuthedUser, @Param('id') id: string) {
+    return this.integrationsService.deleteProviderConfig(user.orgId, id);
   }
 
   // ── Connected Accounts ───────────────────────────────────

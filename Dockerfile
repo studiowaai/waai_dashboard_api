@@ -22,6 +22,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Install psql for running migrations
+RUN apk add --no-cache postgresql16-client
+
 # Copy package files
 COPY package*.json ./
 
@@ -31,8 +34,14 @@ RUN npm ci --only=production
 # Copy built application from builder
 COPY --from=builder /app/dist ./dist
 
+# Copy migrations & entrypoint
+COPY migrations ./migrations
+COPY scripts ./scripts
+RUN chmod +x scripts/*.sh
+
 # Expose port (default 3000, but can be overridden with PORT env var)
 EXPOSE 3000
 
-# Start the application
+# Run migrations → start NestJS
+ENTRYPOINT ["sh", "/app/scripts/docker-entrypoint.sh"]
 CMD ["node", "dist/main.js"]
