@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
+import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 
 export interface ShopifyOrder {
@@ -38,7 +39,40 @@ export interface ShopifyCustomer {
 export class ShopifyService {
   private readonly logger = new Logger(ShopifyService.name);
 
-  constructor(@InjectDataSource() private dataSource: DataSource) {}
+  constructor(
+    @InjectDataSource() private dataSource: DataSource,
+    private readonly configService: ConfigService,
+  ) {}
+
+  // ── OAuth Flow ──────────────────────────────────────────────
+
+  /**
+   * Exchange a Shopify OAuth authorization code for a permanent access token.
+   * Then store the token in connected_accounts.
+   */
+  async exchangeOAuthCode(shop: string, code: string, userId: string, workspaceId: string) {
+    const clientId = this.configService.get<string>('SHOPIFY_CLIENT_ID');
+    const clientSecret = this.configService.get<string>('SHOPIFY_CLIENT_SECRET');
+
+    if (!clientId || !clientSecret) {
+      throw new BadRequestException('Shopify OAuth is niet geconfigureerd');
+    }
+
+    // Exchange the authorization code for an access token
+    const tokenResponse = await axios.post(`https://${shop}/admin/oauth/access_token`, {
+      client_id: clientId,
+      client_secret: clientSecret,
+      code,
+    });
+
+    const accessToken = tokenResponse.data.access_token;
+    if (!accessToken) {
+      throw new BadRequestException('Kon geen access token verkrijgen van Shopify');
+    }
+
+    // Store the token using the existing connectWithToken method
+    return this.connectWithToken(workspaceId, shop, accessToken, userId);
+  }
 
   // ── Connect with direct access token (Custom App) ─────────
 
@@ -54,9 +88,7 @@ export class ShopifyService {
     userId: string,
   ) {
     // Normalize shop domain
-    const shop = shopDomain.includes('.myshopify.com')
-      ? shopDomain
-      : `${shopDomain}.myshopify.com`;
+    const shop = shopDomain.includes('.myshopify.com') ? shopDomain : `${shopDomain}.myshopify.com`;
 
     // Verify the token actually works
     try {
@@ -74,7 +106,7 @@ export class ShopifyService {
     const result = await this.dataSource.query(
       `INSERT INTO connected_accounts (workspace_id, provider_id, label, status, credentials_enc, metadata, connected_by, connected_at)
        VALUES ($1, 'shopify', $2, 'active', $3::bytea, $4, $5, NOW())
-       ON CONFLICT (workspace_id, provider_id, label) DO UPDATE SET
+       ON CONFLICT ON CONSTRAINT uq_connected_accounts_ws_provider_label DO UPDATE SET
          credentials_enc = EXCLUDED.credentials_enc,
          status = 'active',
          metadata = EXCLUDED.metadata,
@@ -84,7 +116,7 @@ export class ShopifyService {
         workspaceId,
         shop,
         Buffer.from(JSON.stringify({ access_token: accessToken })),
-        JSON.stringify({ shop, type: 'custom_app' }),
+        JSON.stringify({ shop, type: 'oauth' }),
         userId,
       ],
     );

@@ -5,7 +5,10 @@ import { ShopifyService } from './shopify.service';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [TypeOrmModule, AuthModule],
+  imports: [
+    TypeOrmModule,
+    AuthModule,
+  ],
   controllers: [ShopifyController],
   providers: [ShopifyService],
   exports: [ShopifyService],
