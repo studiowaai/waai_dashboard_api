@@ -12,7 +12,7 @@ async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(AppModule, new FastifyAdapter());
 
   const configService = app.get(ConfigService);
-  const apiName = configService.get<string>('API_NAME', 'n8n Dashboard API');
+  const apiName = configService.get<string>('API_NAME', 'StudioWaai API');
   const corsOrigins = configService.get<string>('CORS_ORIGIN', 'http://localhost:8000');
   const corsOriginRegex = configService.get<string>('CORS_ORIGIN_REGEX');
 

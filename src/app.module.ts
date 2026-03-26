@@ -5,12 +5,8 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { MeModule } from './me/me.module';
-import { StatsModule } from './stats/stats.module';
-import { RunsModule } from './runs/runs.module';
 import { AdminModule } from './admin/admin.module';
-import { ApprovalsModule } from './approvals/approvals.module';
-import { PromptsModule } from './prompts/prompts.module';
-import { InboxModule } from './inbox/inbox.module';
+import { GmailModule } from './gmail/gmail.module';
 import { IntegrationsModule } from './integrations/integrations.module';
 import { AiModule } from './ai/ai.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
@@ -63,12 +59,8 @@ import { HealthController } from './health.controller';
     ]),
     AuthModule,
     MeModule,
-    StatsModule,
-    RunsModule,
     AdminModule,
-    ApprovalsModule,
-    PromptsModule,
-    InboxModule,
+    GmailModule,
     IntegrationsModule,
     AiModule,
     WorkspacesModule,

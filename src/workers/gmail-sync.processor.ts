@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
-import { GmailSyncService } from '../inbox/gmail-sync.service';
+import { GmailSyncService } from '../gmail/gmail-sync.service';
 
 export interface GmailSyncJobData {
   userId: string;

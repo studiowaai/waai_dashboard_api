@@ -77,14 +77,3 @@ uvicorn app.main:app --reload --port 8000
 docker build -t dashboard-api .
 docker run -p 8000:8000 --env-file .env dashboard-api
 ```
-
-## CapRover Deployment
-
-This API is configured for CapRover deployment. Set the environment variables in CapRover:
-
-- DATABASE_URL
-- CORS_ORIGIN
-- JWT_SECRET
-- JWT_EXPIRE_MIN
-
-The `captain-definition` file is already configured.

@@ -86,7 +86,7 @@ export class GmailController {
       };
     }
 
-    const systemPrompt = `Je bent een professionele e-mail assistent voor een bedrijf. 
+    const systemPrompt = `Je bent een professionele e-mail assistent voor een bedrijf.
 Genereer een beleefde, professionele e-mail reactie in het ${lang}.
 De gebruiker geeft een korte instructie over wat het antwoord moet bevatten.
 Schrijf ALLEEN de body van het e-mailbericht, geen onderwerp of headers.

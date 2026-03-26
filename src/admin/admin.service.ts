@@ -31,18 +31,13 @@ export class AdminService {
 
   async listOrganizations() {
     const query = `
-      SELECT id, name, n8n_transcribe_webhook_url, n8n_prompt_webhook_url, n8n_approval_webhook_url 
-      FROM workspaces 
-      ORDER BY name
+      SELECT id, name FROM workspaces ORDER BY name
     `;
     const rows = await this.dataSource.query(query);
 
     return rows.map((row: any) => ({
       id: row.id.toString(),
       name: row.name,
-      n8n_transcribe_webhook_url: row.n8n_transcribe_webhook_url,
-      n8n_prompt_webhook_url: row.n8n_prompt_webhook_url,
-      n8n_approval_webhook_url: row.n8n_approval_webhook_url,
     }));
   }
 
@@ -73,44 +68,20 @@ export class AdminService {
     };
   }
 
-  async updateOrganization(
-    orgId: string,
-    name: string,
-    transcribeUrl?: string,
-    promptUrl?: string,
-    approvalUrl?: string,
-  ) {
+  async updateOrganization(orgId: string, name: string) {
     const query = `
-      UPDATE workspaces
-      SET name = $1,
-          n8n_transcribe_webhook_url = $2,
-          n8n_prompt_webhook_url = $3,
-          n8n_approval_webhook_url = $4
-      WHERE id = $5
-      RETURNING id, name, n8n_transcribe_webhook_url, n8n_prompt_webhook_url, n8n_approval_webhook_url
+      UPDATE workspaces SET name = $1 WHERE id = $2
+      RETURNING id, name
     `;
 
-    const result = await this.dataSource.query(query, [
-      name,
-      transcribeUrl,
-      promptUrl,
-      approvalUrl,
-      orgId,
-    ]);
+    const result = await this.dataSource.query(query, [name, orgId]);
 
     if (!result || result.length === 0) {
       throw new NotFoundException('Organization not found');
     }
 
     const row = result[0];
-
-    return {
-      id: row.id.toString(),
-      name: row.name,
-      n8n_transcribe_webhook_url: row.n8n_transcribe_webhook_url,
-      n8n_prompt_webhook_url: row.n8n_prompt_webhook_url,
-      n8n_approval_webhook_url: row.n8n_approval_webhook_url,
-    };
+    return { id: row.id.toString(), name: row.name };
   }
 
   async deleteOrganization(orgId: string) {
@@ -202,10 +173,9 @@ export class AdminService {
     const row = result[0];
 
     // Get org name
-    const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM workspaces WHERE id = $1',
-      [orgId],
-    );
+    const orgNameQuery = await this.dataSource.query('SELECT name FROM workspaces WHERE id = $1', [
+      orgId,
+    ]);
     const orgName = orgNameQuery[0].name;
 
     return {
@@ -250,10 +220,9 @@ export class AdminService {
     const row = result[0];
 
     // Get org name
-    const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM workspaces WHERE id = $1',
-      [row.default_workspace_id],
-    );
+    const orgNameQuery = await this.dataSource.query('SELECT name FROM workspaces WHERE id = $1', [
+      row.default_workspace_id,
+    ]);
     const orgName = orgNameQuery[0].name;
 
     return {
@@ -343,10 +312,9 @@ export class AdminService {
     const row = result[0];
 
     // Get org name
-    const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM workspaces WHERE id = $1',
-      [row.default_workspace_id],
-    );
+    const orgNameQuery = await this.dataSource.query('SELECT name FROM workspaces WHERE id = $1', [
+      row.default_workspace_id,
+    ]);
     const orgName = orgNameQuery[0].name;
 
     return {
@@ -432,10 +400,9 @@ export class AdminService {
     const result = await this.dataSource.query(query, [orgId, token, name]);
     const row = result[0];
 
-    const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM workspaces WHERE id = $1',
-      [orgId],
-    );
+    const orgNameQuery = await this.dataSource.query('SELECT name FROM workspaces WHERE id = $1', [
+      orgId,
+    ]);
     const orgName = orgNameQuery[0].name;
 
     return {
@@ -504,10 +471,9 @@ export class AdminService {
     const result = await this.dataSource.query(query, params);
     const row = result[0];
 
-    const orgNameQuery = await this.dataSource.query(
-      'SELECT name FROM workspaces WHERE id = $1',
-      [row.default_workspace_id],
-    );
+    const orgNameQuery = await this.dataSource.query('SELECT name FROM workspaces WHERE id = $1', [
+      row.default_workspace_id,
+    ]);
     const orgName = orgNameQuery[0].name;
 
     return {

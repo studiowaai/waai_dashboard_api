@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 
-const ALL_PAGES = ['dashboard', 'executions', 'approvals', 'admin', 'prompts'];
+const ALL_PAGES = ['dashboard', 'integraties', 'settings', 'admin'];
 
 @Injectable()
 export class MeService {
@@ -35,7 +35,7 @@ export class MeService {
       if (row.role === 'admin') {
         allowedPages = ALL_PAGES;
       } else {
-        allowedPages = ['dashboard', 'executions', 'approvals'];
+        allowedPages = ['dashboard', 'inbox', 'integraties'];
       }
     } else {
       allowedPages = row.page_permissions.filter((p: any) => typeof p === 'string');

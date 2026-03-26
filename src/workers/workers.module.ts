@@ -4,7 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { GmailSyncProcessor } from './gmail-sync.processor';
 import { AiProcessor } from './ai.processor';
-import { InboxModule } from '../inbox/inbox.module';
+import { GmailModule } from '../gmail/gmail.module';
 import { AiModule } from '../ai/ai.module';
 
 export const GMAIL_SYNC_QUEUE = 'gmail-sync';
@@ -26,7 +26,7 @@ export const AI_QUEUE = 'ai-processing';
     }),
     BullModule.registerQueue({ name: GMAIL_SYNC_QUEUE }, { name: AI_QUEUE }),
     TypeOrmModule,
-    InboxModule,
+    GmailModule,
     AiModule,
   ],
   providers: [GmailSyncProcessor, AiProcessor],

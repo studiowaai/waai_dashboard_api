@@ -38,13 +38,7 @@ export class AdminController {
     @CurrentUser() user: AuthedUser,
   ) {
     this.adminService.requireAdmin(user.role);
-    return this.adminService.updateOrganization(
-      orgId,
-      dto.name,
-      dto.n8n_transcribe_webhook_url,
-      dto.n8n_prompt_webhook_url,
-      dto.n8n_approval_webhook_url,
-    );
+    return this.adminService.updateOrganization(orgId, dto.name);
   }
 
   @Delete('organizations/:org_id')

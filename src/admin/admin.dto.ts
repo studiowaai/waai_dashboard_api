@@ -8,18 +8,6 @@ export class OrganizationCreateDto {
 export class OrganizationUpdateDto {
   @IsString()
   name: string;
-
-  @IsOptional()
-  @IsString()
-  n8n_transcribe_webhook_url?: string;
-
-  @IsOptional()
-  @IsString()
-  n8n_prompt_webhook_url?: string;
-
-  @IsOptional()
-  @IsString()
-  n8n_approval_webhook_url?: string;
 }
 
 export class UserCreateDto {

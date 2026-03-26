@@ -1,7 +1,7 @@
 {
   "name": "waai-dashboard-api",
   "version": "1.0.0",
-  "description": "n8n Dashboard API - NestJS Backend",
+  "description": "StudioWaai Dashboard API - NestJS Backend",
   "author": "Studio Waai",
   "private": true,
   "license": "UNLICENSED",
